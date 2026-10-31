@@ -1,6 +1,7 @@
 'use strict';
 /* global ptz */
 
+const { t } = window.I18N;
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -42,6 +43,12 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+function applyI18n(root = document) {
+  root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  root.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });
+  root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+}
+
 function uid() {
   return (crypto.randomUUID && crypto.randomUUID()) || `p${Date.now()}${Math.random().toString(16).slice(2)}`;
 }
@@ -77,12 +84,12 @@ function renderCamStatus() {
   const el = $('#camStatus');
   el.className = `cam-status ${camState.state}`;
   const c = settings.camera;
-  $('#camLabel').textContent = c.host ? `${c.host} · ${PROTOCOL_LABEL[c.protocol] || c.protocol}` : 'Camera non configurata';
+  $('#camLabel').textContent = c.host ? `${c.host} · ${PROTOCOL_LABEL[c.protocol] || c.protocol}` : t('top.notConfigured');
   const txt = {
-    connected: 'connessa',
-    connecting: 'connessione…',
-    error: camState.detail || 'errore',
-    disconnected: c.host ? 'disconnessa' : 'apri Impostazioni',
+    connected: t('cam.connected'),
+    connecting: t('cam.connecting'),
+    error: camState.detail || t('cam.error'),
+    disconnected: c.host ? t('cam.disconnected') : t('cam.openSettings'),
   }[camState.state] || '';
   $('#camDetail').textContent = txt;
   el.title = camState.detail || '';
@@ -171,7 +178,7 @@ let focusActive = false;
 
 function setAfUi(on) {
   $('#btnAF').classList.toggle('on', on);
-  $('#btnAF').textContent = on ? 'Automatico' : 'Manuale';
+  $('#btnAF').textContent = on ? t('ctl.af') : t('ctl.mf');
 }
 
 for (const b of $$('.hold')) {
@@ -371,11 +378,11 @@ function renderPreviewState() {
   const src = settings.preview.source;
   const live = previewState.state === 'live';
   $('#liveBadge').classList.toggle('on', live);
-  if (src === 'none') { setPreviewMsg('Anteprima disattivata'); return; }
+  if (src === 'none') { setPreviewMsg(t('preview.off')); return; }
   if (live) { setPreviewMsg(''); return; }
-  if (src === 'rtsp' && !settings.preview.rtspUrl) { setPreviewMsg('Anteprima non configurata — apri Impostazioni e premi «Trova»'); return; }
-  if (previewState.state === 'connecting') setPreviewMsg('Connessione al video…');
-  else if (previewState.state === 'error') setPreviewMsg(`Video non disponibile: ${previewState.detail}`);
+  if (src === 'rtsp' && !settings.preview.rtspUrl) { setPreviewMsg(t('preview.needUrl')); return; }
+  if (previewState.state === 'connecting') setPreviewMsg(t('preview.connecting'));
+  else if (previewState.state === 'error') setPreviewMsg(t('preview.error', { detail: previewState.detail }));
   else setPreviewMsg('');
 }
 
@@ -415,7 +422,7 @@ async function startUsb() {
     };
     loop();
   } catch (e) {
-    previewState = { state: 'error', detail: `USB: ${e.message}` };
+    previewState = { state: 'error', detail: t('preview.usbError', { detail: e.message }) };
     renderPreviewState();
   }
 }
@@ -458,26 +465,26 @@ function captureThumb() {
 // Inquadrature
 
 function persist() {
-  return ptz.savePresets(presets).catch((e) => toast(`Salvataggio non riuscito: ${errMsg(e)}`, 'err'));
+  return ptz.savePresets(presets).catch((e) => toast(t('presets.saveFailed', { error: errMsg(e) }), 'err'));
 }
 
 function renderPresets() {
   const grid = $('#presetGrid');
   grid.innerHTML = '';
   if (!presets.length) {
-    grid.innerHTML = '<div class="empty-presets">Nessuna inquadratura. Componi l’immagine con joystick e zoom, poi premi «Salva inquadratura».</div>';
+    grid.innerHTML = `<div class="empty-presets">${esc(t('presets.empty'))}</div>`;
     return;
   }
   presets.forEach((p, i) => {
     const b = document.createElement('button');
     b.className = `preset${p.id === activeId ? ' active' : ''}`;
     b.dataset.id = p.id;
-    b.title = `${p.name}${i < 10 ? ` — tasto ${HOTKEYS[i]}` : ''}`;
+    b.title = i < 10 ? t('presets.withKey', { text: p.name, key: HOTKEYS[i] }) : p.name;
     const thumb = p.thumb ? `style="background-image:url('${p.thumb}')"` : '';
     b.innerHTML = `<div class="thumb" ${thumb}>${p.thumb ? '' : '◎'}</div>`
       + `<div class="meta"><span class="num">${i < 10 ? HOTKEYS[i] : '·'}</span><span class="name">${esc(p.name)}</span>`
-      + '<span class="edit" title="Modifica">✎</span></div>'
-      + (p.slot != null ? `<span class="slot-tag">mem. ${p.slot}</span>` : '');
+      + `<span class="edit" title="${esc(t('presets.edit'))}">✎</span></div>`
+      + (p.slot != null ? `<span class="slot-tag">${esc(t('presets.slot', { n: p.slot }))}</span>` : '');
     b.addEventListener('click', (e) => {
       if (e.target.closest('.edit')) { openEditor(p.id); return; }
       recall(p);
@@ -493,12 +500,12 @@ async function recall(p) {
   try {
     if (p.pos) await ptz.goto(p.pos, settings.recallSpeed);
     else if (p.slot != null) await ptz.recallSlot(p.slot);
-    else throw new Error('inquadratura senza posizione salvata');
+    else throw new Error(t('presets.noPosition'));
     activeId = p.id;
     if (p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
     renderPresets();
   } catch (e) {
-    toast(`«${p.name}»: ${errMsg(e)}`, 'err');
+    toast(t('presets.recallError', { name: p.name, error: errMsg(e) }), 'err');
   }
 }
 
@@ -525,7 +532,7 @@ function nextFreeSlot() {
     if (n >= 90 && n <= 99) continue; // memorie spesso riservate a funzioni speciali (menu, ecc.)
     if (!used.has(n)) return n;
   }
-  throw new Error('nessuna memoria libera nella camera');
+  throw new Error(t('presets.noFreeSlot'));
 }
 
 async function captureCurrent(existingSlot = null) {
@@ -540,8 +547,8 @@ async function captureCurrent(existingSlot = null) {
 
 function explainCaptureError(e) {
   const m = errMsg(e);
-  if (/nessuna risposta|posizione|non comunica|inattesa/i.test(m)) {
-    return `${m}. Se la camera non sa dire dove si trova, in Impostazioni scegli «Nelle memorie della camera».`;
+  if (/nessuna risposta|posizione|non comunica|inattesa|no reply|position|unexpected/i.test(m)) {
+    return t('presets.captureHint', { error: m });
   }
   return m;
 }
@@ -560,12 +567,13 @@ function editorPreset() {
 function renderEditor() {
   const p = editorPreset();
   const idx = p ? presets.indexOf(p) : -1;
-  $('#edTitle').textContent = p ? `Modifica «${p.name}»` : 'Nuova inquadratura';
-  $('#edSave').textContent = p ? 'Salva modifiche' : 'Salva inquadratura';
+  $('#edTitle').textContent = p ? t('ed.editTitle', { name: p.name }) : t('ed.new');
+  $('#edSave').textContent = p ? t('ed.saveChanges') : t('ed.save');
   $('#edExisting').style.display = p ? '' : 'none';
   $('#edLeft').disabled = idx <= 0;
   $('#edRight').disabled = idx < 0 || idx >= presets.length - 1;
-  $('#edKey').textContent = p && idx < 10 ? `tasto ${HOTKEYS[idx]}` : (!p && presets.length < 10 ? `tasto ${HOTKEYS[presets.length]}` : '');
+  const keyIdx = p ? idx : presets.length;
+  $('#edKey').textContent = keyIdx >= 0 && keyIdx < 10 ? t('presets.key', { key: HOTKEYS[keyIdx] }) : '';
 }
 
 async function openEditor(id = null) {
@@ -579,10 +587,10 @@ async function openEditor(id = null) {
     renderCompact();
   }
   document.body.classList.add('editing');
-  $('#edName').value = p ? p.name : `Inquadratura ${presets.length + 1}`;
+  $('#edName').value = p ? p.name : t('presets.defaultName', { n: presets.length + 1 });
   renderEditor();
   if (document.activeElement) document.activeElement.blur(); // le frecce muovono la camera
-  if (camState.state !== 'connected') toast('La camera non risulta connessa: controlla le Impostazioni prima di salvare.', 'warn', 6000);
+  if (camState.state !== 'connected') toast(t('ed.notConnected'), 'warn', 6000);
   if (p) await recall(p); // si parte dalla posizione salvata, poi la si ritocca
 }
 
@@ -614,7 +622,7 @@ async function saveEditor() {
   btn.disabled = false;
   const thumb = captureThumb();
   const now = new Date().toISOString();
-  const name = $('#edName').value.trim() || (existing ? existing.name : `Inquadratura ${presets.length + 1}`);
+  const name = $('#edName').value.trim() || (existing ? existing.name : t('presets.defaultName', { n: presets.length + 1 }));
   let p = existing;
   if (p) {
     Object.assign(p, {
@@ -630,7 +638,8 @@ async function saveEditor() {
   activeId = p.id;
   await persist();
   const idx = presets.indexOf(p);
-  toast(`${existing ? 'Aggiornata' : 'Salvata'} «${p.name}»${idx < 10 ? ` — tasto ${HOTKEYS[idx]}` : ''}`, 'ok');
+  const msg = t(existing ? 'presets.updated' : 'presets.saved', { name: p.name });
+  toast(idx < 10 ? t('presets.withKey', { text: msg, key: HOTKEYS[idx] }) : msg, 'ok');
   await closeEditor();
 }
 
@@ -658,16 +667,16 @@ $('#edName').addEventListener('keydown', (e) => {
 $('#edDelete').addEventListener('click', async () => {
   const p = editorPreset();
   if (!p) return;
-  const r = await choice('Eliminare l’inquadratura?', `«${p.name}» verrà rimossa da questo account.`, [
-    { label: 'Annulla', value: 'no', className: 'ghost' },
-    { label: 'Elimina', value: 'yes', className: 'danger' },
+  const r = await choice(t('presets.deleteTitle'), t('presets.deleteText', { name: p.name }), [
+    { label: t('common.cancel'), value: 'no', className: 'ghost' },
+    { label: t('common.delete'), value: 'yes', className: 'danger' },
   ]);
   if (r !== 'yes') return;
   presets = presets.filter((x) => x.id !== p.id);
   if (activeId === p.id) activeId = null;
   await persist();
   await closeEditor();
-  toast(`Eliminata «${p.name}»`, 'ok');
+  toast(t('presets.deleted', { name: p.name }), 'ok');
 });
 
 // ---------------------------------------------------------------------------
@@ -694,7 +703,8 @@ function fillSettingsForm() {
   $('#sGlobal').checked = !!settings.globalHotkeys;
   $('#discoverOut').innerHTML = '';
   $('#rtspOut').innerHTML = '';
-  $('#aboutLine').textContent = `PTZ Panel ${info.version} · account ${info.user} · dati in ${info.dataDir}`;
+  $('#sLanguage').value = settings.language || 'auto';
+  $('#aboutLine').textContent = t('s.about', { version: info.version, user: info.user, dir: info.dataDir });
   updateFormVisibility();
   if (p.source === 'usb') listUsbDevices(p.usbDeviceId);
 }
@@ -707,9 +717,7 @@ function updateFormVisibility() {
   $$('.slot-only').forEach((el) => { el.style.visibility = slot ? 'visible' : 'hidden'; });
   const onvif = $('#sProtocol').value === 'onvif';
   $('#sAddress').disabled = onvif;
-  $('#presetModeNote').textContent = slot
-    ? 'Le inquadrature restano nella camera: ogni account usa memorie diverse a partire da quella indicata (ad es. 10 per il primo, 60 per il secondo), così non si sovrascrivono.'
-    : 'La posizione esatta (pan, tilt, zoom e fuoco) viene salvata nel programma, separata per ogni account di Windows. La camera deve saper comunicare la sua posizione.';
+  $('#presetModeNote').textContent = slot ? t('s.noteSlot') : t('s.noteApp');
 }
 
 $('#sSource').addEventListener('change', () => {
@@ -719,7 +727,7 @@ $('#sSource').addEventListener('change', () => {
 $('#sPresetMode').addEventListener('change', () => {
   updateFormVisibility();
   if ($('#sPresetMode').value === 'slot') {
-    toast(`Questo account usa le memorie della camera da ${$('#sSlotBase').value} in su: verifica che gli altri account abbiano un numero diverso.`, 'warn', 7000);
+    toast(t('s.slotWarn', { n: $('#sSlotBase').value }), 'warn', 7000);
   }
 });
 $('#sProtocol').addEventListener('change', () => {
@@ -734,8 +742,8 @@ async function listUsbDevices(selected) {
     const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }).catch(() => null);
     const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
     if (tmp) tmp.getTracks().forEach((t) => t.stop());
-    sel.innerHTML = devs.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || `Videocamera ${i + 1}`)}</option>`).join('')
-      || '<option value="">Nessun dispositivo video trovato</option>';
+    sel.innerHTML = devs.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || t('s.usbCamera', { n: i + 1 }))}</option>`).join('')
+      || `<option value="">${esc(t('s.usbNone'))}</option>`;
     if (selected) sel.value = selected;
   } catch (e) {
     sel.innerHTML = `<option value="">${esc(e.message)}</option>`;
@@ -763,25 +771,25 @@ $('#btnDiscover').addEventListener('click', async () => {
   const out = $('#discoverOut');
   const btn = $('#btnDiscover');
   btn.disabled = true;
-  out.innerHTML = line('Ricerca nella rete locale in corso (circa 10–20 secondi)…');
+  out.innerHTML = line(esc(t('d.searching')));
   try {
     const r = await ptz.discover();
-    const nets = r.networks.map((n) => `${n.address}`).join(', ') || 'nessuna';
+    const nets = r.networks.map((n) => `${n.address}`).join(', ') || t('d.netsNone');
     if (!r.devices.length) {
-      out.innerHTML = line(`Nessun dispositivo video trovato. Reti di questo PC: ${esc(nets)}. Controlla che la camera sia sulla stessa rete (stessi primi tre numeri dell'IP).`, 'bad');
+      out.innerHTML = line(esc(t('d.none', { nets })), 'bad');
       return;
     }
     out.innerHTML = r.devices.map((d) => {
-      const tags = [d.onvif ? 'ONVIF' : null, d.rtsp ? 'video RTSP' : null, d.http ? 'pagina web' : null].filter(Boolean).join(' · ');
+      const tags = [d.onvif ? 'ONVIF' : null, d.rtsp ? t('d.tagRtsp') : null, d.http ? t('d.tagWeb') : null].filter(Boolean).join(' · ');
       const name = [d.name, d.hardware].filter(Boolean).join(' ');
       return `<div class="line pick ok" data-ip="${esc(d.ip)}"><b>${esc(d.ip)}</b> — ${esc(tags)}${name ? ` — ${esc(name)}` : ''}</div>`;
-    }).join('') + line(`Clicca un indirizzo per usarlo. Reti di questo PC: ${esc(nets)}`, 'bad');
+    }).join('') + line(esc(t('d.pick', { nets })), 'bad');
     out.querySelectorAll('.pick').forEach((el) => el.addEventListener('click', () => {
       $('#sHost').value = el.dataset.ip;
       detectProtocol();
     }));
   } catch (e) {
-    out.innerHTML = line(`Errore nella ricerca: ${esc(errMsg(e))}`, 'bad');
+    out.innerHTML = line(esc(t('d.searchError', { error: errMsg(e) })), 'bad');
   } finally {
     btn.disabled = false;
   }
@@ -790,23 +798,24 @@ $('#btnDiscover').addEventListener('click', async () => {
 async function detectProtocol() {
   const out = $('#discoverOut');
   const c = formCamera();
-  if (!c.host) { toast('Inserisci prima l’indirizzo IP', 'warn'); return; }
+  if (!c.host) { toast(t('s.needIp'), 'warn'); return; }
   const btn = $('#btnDetect');
   btn.disabled = true;
-  out.innerHTML = line(`Verifico i protocolli di ${esc(c.host)}…`);
+  out.innerHTML = line(esc(t('d.checking', { host: c.host })));
   try {
     const r = await ptz.detectProtocols({ host: c.host, user: c.user, pass: c.pass, address: c.address });
     const rows = [];
     for (const v of r.visca) {
-      rows.push(line(`${esc(v.label)}: ${v.ok ? `risponde${v.position ? ', legge la posizione ✓' : ' (posizione non leggibile)'}` : 'nessuna risposta'}`, v.ok ? 'ok' : 'bad'));
+      const st = v.ok ? `${t('d.replies')}${v.position ? t('d.position') : t('d.noPosition')}` : t('d.noReply');
+      rows.push(line(`${esc(v.label)}: ${esc(st)}`, v.ok ? 'ok' : 'bad'));
     }
     if (r.onvif.ok) {
-      const det = r.onvif.error ? `errore: ${esc(r.onvif.error)}` : `${r.onvif.ptz ? 'controllo PTZ ✓' : 'senza PTZ'}${r.onvif.position ? ', posizione ✓' : ''}`;
-      rows.push(line(`ONVIF (porta ${r.onvif.port}): ${det}`, r.onvif.ptz ? 'ok' : 'bad'));
+      const det = r.onvif.error ? t('d.onvifErr', { error: r.onvif.error }) : `${r.onvif.ptz ? t('d.onvifPtz') : t('d.onvifNoPtz')}${r.onvif.position ? t('d.onvifPos') : ''}`;
+      rows.push(line(esc(t('d.onvif', { port: r.onvif.port, detail: det })), r.onvif.ptz ? 'ok' : 'bad'));
     } else {
-      rows.push(line('ONVIF: non trovato', 'bad'));
+      rows.push(line(esc(t('d.onvifNone')), 'bad'));
     }
-    if (r.http.ok) rows.push(line(`Pagina web: ${esc(r.http.title || 'presente')}${r.http.server ? ` (${esc(r.http.server)})` : ''}`, 'bad'));
+    if (r.http.ok) rows.push(line(`${esc(t('d.web', { title: r.http.title || t('d.webPresent') }))}${r.http.server ? ` (${esc(r.http.server)})` : ''}`, 'bad'));
 
     // scelta automatica: prima chi legge la posizione
     const order = ['udp', 'tcp', 'sony'];
@@ -825,11 +834,11 @@ async function detectProtocol() {
       $('#sPort').value = chosen.port;
       if (needSlot) $('#sPresetMode').value = 'slot';
       updateFormVisibility();
-      rows.unshift(line(`<b>Impostato: ${esc(PROTOCOL_LABEL[chosen.protocol])} porta ${chosen.port}</b>${needSlot ? ' — la camera non comunica la posizione: inquadrature salvate nelle sue memorie' : ''}. Premi «Salva».`, 'ok'));
+      rows.unshift(line(`<b>${esc(t('d.set', { protocol: PROTOCOL_LABEL[chosen.protocol], port: chosen.port }))}</b>${needSlot ? esc(t('d.setSlot')) : ''}${esc(t('d.pressSave'))}`, 'ok'));
     } else if (r.onvif.ok && r.onvif.error && /author|autoriz|401/i.test(r.onvif.error)) {
-      rows.unshift(line('ONVIF richiede utente e password: inseriscili e riprova.', 'bad'));
+      rows.unshift(line(esc(t('d.onvifAuth')), 'bad'));
     } else {
-      rows.unshift(line('Nessun protocollo di controllo ha risposto. Verifica IP, che VISCA over IP o ONVIF siano attivi nella pagina web della camera, o prova il cavo seriale.', 'bad'));
+      rows.unshift(line(esc(t('d.nothing')), 'bad'));
     }
     out.innerHTML = rows.join('');
     if (settings.preview.source === 'rtsp' && !$('#sRtsp').value && (r.onvif.ok || r.http.ok || anyVisca)) findRtsp();
@@ -844,21 +853,21 @@ $('#btnDetect').addEventListener('click', detectProtocol);
 async function findRtsp() {
   const out = $('#rtspOut');
   const c = formCamera();
-  if (!c.host) { toast('Inserisci prima l’indirizzo IP', 'warn'); return; }
+  if (!c.host) { toast(t('s.needIp'), 'warn'); return; }
   const btn = $('#btnFindRtsp');
   btn.disabled = true;
-  out.innerHTML = line('Cerco il flusso video (può richiedere fino a un minuto)…');
+  out.innerHTML = line(esc(t('r.searching')));
   try {
     const onvifPort = c.protocol === 'onvif' ? c.port : 80;
     const r = await ptz.detectRtsp({ host: c.host, user: c.user, pass: c.pass, onvifPort });
     const ok = r.filter((x) => x.ok);
     if (!ok.length) {
-      out.innerHTML = line('Nessun flusso trovato automaticamente. Inserisci l’indirizzo RTSP indicato nella pagina web della camera (sezione Rete/Stream) e premi «Prova».', 'bad')
-        + r.map((x) => line(`${esc(x.display)} — ${esc(x.error || 'non valido')}`, 'bad')).join('');
+      out.innerHTML = line(esc(t('r.none')), 'bad')
+        + r.map((x) => line(`${esc(x.display)} — ${esc(x.error || t('r.invalid'))}`, 'bad')).join('');
       return;
     }
     $('#sRtsp').value = ok[0].url;
-    out.innerHTML = line(`<b>Trovato:</b> ${esc(ok[0].display)} (${esc(ok[0].note)}). Clicca un'altra voce per cambiarlo.`, 'ok')
+    out.innerHTML = line(`<b>${esc(t('r.found'))}</b> ${esc(ok[0].display)} (${esc(ok[0].note)}). ${esc(t('r.foundHint'))}`, 'ok')
       + ok.map((x) => `<div class="line pick" data-url="${esc(x.url)}">${esc(x.display)} — ${esc(x.note)}</div>`).join('');
     out.querySelectorAll('.pick').forEach((el) => el.addEventListener('click', () => { $('#sRtsp').value = el.dataset.url; }));
   } catch (e) {
@@ -873,15 +882,15 @@ $('#btnTestRtsp').addEventListener('click', async () => {
   const url = $('#sRtsp').value.trim();
   if (!url) return;
   const out = $('#rtspOut');
-  out.innerHTML = line('Provo il flusso…');
+  out.innerHTML = line(esc(t('r.testing')));
   const r = await ptz.testUrl(url);
-  out.innerHTML = r.ok ? line('Il flusso funziona ✓', 'ok') : line(`Non funziona: ${esc(r.error || 'errore')}`, 'bad');
+  out.innerHTML = r.ok ? line(esc(t('r.works')), 'ok') : line(esc(t('r.fails', { error: r.error || t('cam.error') })), 'bad');
 });
 
 $('#btnExport').addEventListener('click', async () => {
   try {
     const f = await ptz.exportPresets(presets);
-    if (f) toast(`Esportate ${presets.length} inquadrature`, 'ok');
+    if (f) toast(t('presets.exported', { n: presets.length }), 'ok');
   } catch (e) { toast(errMsg(e), 'err'); }
 });
 
@@ -890,11 +899,11 @@ $('#btnImport').addEventListener('click', async () => {
   try { list = await ptz.importPresets(); } catch (e) { toast(errMsg(e), 'err'); return; }
   if (!list) return;
   const valid = list.filter((p) => p && (p.pos || p.slot != null));
-  if (!valid.length) { toast('Il file non contiene inquadrature valide', 'warn'); return; }
-  const r = await choice('Importa inquadrature', `Il file contiene ${valid.length} inquadrature.`, [
-    { label: 'Annulla', value: 'no', className: 'ghost' },
-    { label: 'Aggiungi alle mie', value: 'add' },
-    { label: 'Sostituisci le mie', value: 'replace', className: 'primary' },
+  if (!valid.length) { toast(t('presets.importInvalid'), 'warn'); return; }
+  const r = await choice(t('presets.importTitle'), t('presets.importText', { n: valid.length }), [
+    { label: t('common.cancel'), value: 'no', className: 'ghost' },
+    { label: t('presets.importAdd'), value: 'add' },
+    { label: t('presets.importReplace'), value: 'replace', className: 'primary' },
   ]);
   if (r !== 'add' && r !== 'replace') return;
   const fresh = valid.map((p) => ({ ...p, id: uid() }));
@@ -902,7 +911,7 @@ $('#btnImport').addEventListener('click', async () => {
   activeId = null;
   renderPresets();
   await persist();
-  toast(`Importate ${fresh.length} inquadrature`, 'ok');
+  toast(t('presets.imported', { n: fresh.length }), 'ok');
 });
 
 $('#btnDataFolder').addEventListener('click', () => ptz.openDataFolder());
@@ -927,21 +936,24 @@ $('#dlgSettings').addEventListener('close', async () => {
     presetMode: $('#sPresetMode').value,
     slotBase: clamp(Number($('#sSlotBase').value) || 0, 0, 240),
     globalHotkeys: $('#sGlobal').checked,
+    language: $('#sLanguage').value,
   };
+  const langChanged = partial.language !== (settings.language || 'auto');
   const prevSource = `${settings.preview.source}|${settings.preview.usbDeviceId}`;
   try {
     const r = await ptz.saveSettings(partial);
     settings = r.settings;
     if (r.hotkeys && !r.hotkeys.ok) {
-      toast(`Alcune scorciatoie sono già usate da un altro programma: ${r.hotkeys.failed.join(', ')}`, 'warn', 6000);
+      toast(t('s.hotkeysBusy', { keys: r.hotkeys.failed.join(', ') }), 'warn', 6000);
     }
     if (`${settings.preview.source}|${settings.preview.usbDeviceId}` !== prevSource) applyPreviewSource();
     renderCamStatus();
     renderPreviewState();
     if (lastFrame) draw(lastFrame);
-    toast('Impostazioni salvate', 'ok');
+    if (langChanged) { window.location.reload(); return; }
+    toast(t('s.saved'), 'ok');
   } catch (e) {
-    toast(`Impostazioni non salvate: ${errMsg(e)}`, 'err');
+    toast(t('s.notSaved', { error: errMsg(e) }), 'err');
   }
 });
 
@@ -960,7 +972,7 @@ $('#btnPin').addEventListener('click', async () => {
 
 function renderCompact() {
   document.body.classList.toggle('compact', !!settings.compact);
-  $('#btnCompact').textContent = settings.compact ? 'Completa' : 'Compatta';
+  $('#btnCompact').textContent = settings.compact ? t('top.full') : t('top.compact');
 }
 
 $('#btnCompact').addEventListener('click', async () => {
@@ -976,6 +988,9 @@ $('#btnCompact').addEventListener('click', async () => {
   settings = s.settings;
   presets = s.presets || [];
   info = s.info;
+  window.I18N.setLang(info.lang);
+  document.documentElement.lang = info.lang;
+  applyI18n();
   camState = s.camStatus;
   previewState = s.previewStatus;
   $('#account').textContent = info.user;
@@ -991,7 +1006,7 @@ $('#btnCompact').addEventListener('click', async () => {
     const was = camState.state;
     camState = st;
     renderCamStatus();
-    if (was === 'connected' && st.state !== 'connected') toast(`Camera: ${st.detail || 'connessione persa'}`, 'warn');
+    if (was === 'connected' && st.state !== 'connected') toast(t('cam.toast', { detail: st.detail || t('cam.lost') }), 'warn');
   });
   ptz.onCamLog((m) => toast(m, 'warn'));
   ptz.onHotkey((h) => {

@@ -11,6 +11,9 @@ const { ViscaCamera } = require('./visca');
 const { OnvifCamera } = require('./onvif');
 const { Preview, testUrl } = require('./preview');
 const probe = require('./probe');
+const I18N = require('../shared/i18n');
+
+const { t } = I18N;
 
 app.setName('PTZ Panel');
 app.setPath('userData', path.join(app.getPath('appData'), 'PTZ Panel'));
@@ -24,7 +27,7 @@ if (!gotLock) {
 let win = null;
 let store = null;
 let camera = null;
-let camStatus = { state: 'disconnected', detail: 'camera non configurata' };
+let camStatus = { state: 'disconnected', detail: '' };
 const preview = new Preview();
 let previewStatus = { state: 'off', detail: '' };
 let frameInFlight = false;
@@ -63,7 +66,7 @@ function startCamera() {
   }
   camera = createCamera(store.settings.camera);
   if (!camera) {
-    camStatus = { state: 'disconnected', detail: 'camera non configurata' };
+    camStatus = { state: 'disconnected', detail: t('main.cameraNotConfigured') };
     send('cam:status', camStatus);
     return;
   }
@@ -76,7 +79,7 @@ function startCamera() {
 }
 
 function requireCamera() {
-  if (!camera) throw new Error('Configura prima la telecamera (Impostazioni)');
+  if (!camera) throw new Error(t('main.configureFirst'));
   return camera;
 }
 
@@ -216,6 +219,7 @@ function registerIpc() {
       dataDir: app.getPath('userData'),
       version: app.getVersion(),
       platform: process.platform,
+      lang: I18N.getLang(),
     },
   }));
 
@@ -223,6 +227,7 @@ function registerIpc() {
     const before = JSON.stringify(store.settings.camera);
     const beforePrev = JSON.stringify(store.settings.preview);
     const s = store.saveSettings(partial || {});
+    I18N.setLang(I18N.resolve(s.language, app.getLocale()));
     if (JSON.stringify(s.camera) !== before) startCamera();
     if (JSON.stringify(s.preview) !== beforePrev) startPreview();
     if (win) win.setAlwaysOnTop(!!s.alwaysOnTop, 'floating');
@@ -234,9 +239,9 @@ function registerIpc() {
 
   ipcMain.handle('presets:export', async (_e, list) => {
     const r = await dialog.showSaveDialog(win, {
-      title: 'Esporta preset',
-      defaultPath: path.join(app.getPath('documents'), `preset-ptz-${os.userInfo().username}.json`),
-      filters: [{ name: 'Preset PTZ Panel', extensions: ['json'] }],
+      title: t('main.exportTitle'),
+      defaultPath: path.join(app.getPath('documents'), `ptz-panel-presets-${os.userInfo().username}.json`),
+      filters: [{ name: t('main.fileFilter'), extensions: ['json'] }],
     });
     if (r.canceled || !r.filePath) return null;
     fs.writeFileSync(r.filePath, JSON.stringify({
@@ -247,13 +252,13 @@ function registerIpc() {
 
   ipcMain.handle('presets:import', async () => {
     const r = await dialog.showOpenDialog(win, {
-      title: 'Importa preset',
+      title: t('main.importTitle'),
       properties: ['openFile'],
-      filters: [{ name: 'Preset PTZ Panel', extensions: ['json'] }],
+      filters: [{ name: t('main.fileFilter'), extensions: ['json'] }],
     });
     if (r.canceled || !r.filePaths[0]) return null;
     const data = JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8'));
-    if (!Array.isArray(data.presets)) throw new Error('file non valido: mancano i preset');
+    if (!Array.isArray(data.presets)) throw new Error(t('main.invalidFile'));
     return data.presets;
   });
 
@@ -327,7 +332,7 @@ function registerIpc() {
     }
     // percorsi che chiedono password: possibili ma non verificati
     for (const d of described) {
-      if (d.status === 401 && !candidates.some((c) => c.url === d.url)) candidates.push({ url: d.url, note: 'richiede password' });
+      if (d.status === 401 && !candidates.some((c) => c.url === d.url)) candidates.push({ url: d.url, note: t('r.needsPassword') });
     }
     const results = [];
     const seen = new Set();
@@ -364,6 +369,7 @@ app.whenReady().then(() => {
   if (!gotLock) return;
   const sharedDefaults = path.join(path.dirname(process.execPath), 'ptz-defaults.json');
   store = new Store(app.getPath('userData'), sharedDefaults, os.userInfo().username);
+  I18N.setLang(I18N.resolve(store.settings.language, app.getLocale()));
   if (store.settings.compact) normalBounds = store.settings.bounds;
   registerIpc();
   createWindow();
@@ -391,10 +397,10 @@ process.on('uncaughtException', (err) => {
   try {
     fs.appendFileSync(path.join(app.getPath('userData'), 'errori.log'), `${new Date().toISOString()} ${err && err.stack ? err.stack : err}\n`);
   } catch (_) { /* ignora */ }
-  send('cam:log', `Errore interno: ${err && err.message ? err.message : err}`);
+  send('cam:log', t('main.internalError', { error: err && err.message ? err.message : err }));
 });
 process.on('unhandledRejection', (err) => {
-  send('cam:log', `Errore interno: ${err && err.message ? err.message : err}`);
+  send('cam:log', t('main.internalError', { error: err && err.message ? err.message : err }));
 });
 
 app.on('window-all-closed', () => app.quit());

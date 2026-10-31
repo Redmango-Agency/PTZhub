@@ -36,7 +36,10 @@ USO
 - "Compatta": solo anteprima piccola, inquadrature e STOP.
 - Impostazioni > "Scorciatoie attive anche con altri programmi":
   Ctrl+Alt+1…0 richiama, Ctrl+Alt+S ferma, anche se l'app è in secondo piano.
+- Impostazioni > Lingua: italiano o inglese (in automatico come Windows).
 
 DOVE SONO I DATI
 %APPDATA%\PTZ Panel (impostazioni.json e preset.json), uno per account.
 Da Impostazioni si possono esportare e importare le inquadrature.
+
+Licenza: MIT. Codice sorgente e aggiornamenti: pagina del progetto su GitHub.

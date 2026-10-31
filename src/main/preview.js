@@ -3,6 +3,7 @@
 
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
+const { t } = require('../shared/i18n');
 const path = require('path');
 const fs = require('fs');
 
@@ -49,7 +50,7 @@ class Preview extends EventEmitter {
     this.watchdog = setInterval(() => {
       // nessun fotogramma da 8 s con processo vivo: si riavvia
       if (this.proc && this.lastFrameAt && Date.now() - this.lastFrameAt > 8000) {
-        this.emit('status', { state: 'error', detail: 'flusso bloccato, riconnessione…' });
+        this.emit('status', { state: 'error', detail: t('ffmpeg.stalled') });
         this.proc.kill();
       }
     }, 2000);
@@ -79,7 +80,7 @@ class Preview extends EventEmitter {
     try {
       proc = spawn(ffmpegPath(), args, { windowsHide: true });
     } catch (e) {
-      this.emit('status', { state: 'error', detail: `ffmpeg non avviabile: ${e.message}` });
+      this.emit('status', { state: 'error', detail: t('ffmpeg.cannotStart', { error: e.message }) });
       return;
     }
     this.proc = proc;
@@ -95,7 +96,7 @@ class Preview extends EventEmitter {
       if (this.proc !== proc) return;
       this.proc = null;
       if (!this.wanted) return;
-      const msg = this.stderrTail.trim().split('\n').pop() || 'flusso interrotto';
+      const msg = this.stderrTail.trim().split('\n').pop() || t('ffmpeg.interrupted');
       this.emit('status', { state: 'error', detail: msg });
       clearTimeout(this.restartTimer);
       this.restartTimer = setTimeout(() => { if (this.wanted) this._spawn(); }, this.backoff);

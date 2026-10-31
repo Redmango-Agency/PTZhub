@@ -100,6 +100,16 @@ app.on('browser-window-created', (_e, win) => {
       await sleep(1000);
       await shot(win, '6-compatta');
 
+      // nessun testo deve essere rimasto una chiave non tradotta
+      result.untranslated = await js(`(() => {
+        const keys = new Set(Object.keys(window.I18N.dictionaries.it));
+        const out = [];
+        const walk = (n) => { if (n.nodeType === 3) { const v = n.textContent.trim(); if (keys.has(v)) out.push(v); } n.childNodes.forEach(walk); };
+        walk(document.body);
+        document.querySelectorAll('[title],[placeholder]').forEach((el) => { [el.title, el.placeholder].forEach((v) => { if (keys.has(v)) out.push(v); }); });
+        return out;
+      })()`);
+      result.lang = await js('document.documentElement.lang');
       result.presetFile = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'preset.json'), 'utf8')).presets.map((p) => ({ name: p.name, pos: p.pos, thumb: !!p.thumb }));
     } catch (e) {
       result.error = String(e && e.stack ? e.stack : e);

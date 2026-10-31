@@ -8,6 +8,7 @@
 const dgram = require('dgram');
 const net = require('net');
 const { EventEmitter } = require('events');
+const { t } = require('../shared/i18n');
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -40,13 +41,8 @@ function splitMessages(buf) {
   return { messages: out, rest: buf.subarray(start) };
 }
 
-const ERRORS = {
-  0x01: 'lunghezza messaggio non valida',
-  0x02: 'sintassi comando non supportata',
-  0x03: 'buffer comandi pieno',
-  0x04: 'comando annullato',
-  0x05: 'socket non valido',
-  0x41: 'comando non eseguibile in questo stato',
+const ERROR_KEYS = {
+  0x01: 'visca.e01', 0x02: 'visca.e02', 0x03: 'visca.e03', 0x04: 'visca.e04', 0x05: 'visca.e05', 0x41: 'visca.e41',
 };
 
 class ViscaTransport extends EventEmitter {
@@ -103,7 +99,7 @@ class ViscaTransport extends EventEmitter {
       const done = () => { if (!settled) { settled = true; resolve(); } };
       const timer = setTimeout(() => {
         if (!this.connected) {
-          sock.destroy(new Error('timeout connessione TCP'));
+          sock.destroy(new Error(t('net.tcpTimeout')));
         }
       }, 3000);
       sock.on('connect', () => {
@@ -138,11 +134,11 @@ class ViscaTransport extends EventEmitter {
     this.closed = true;
     clearTimeout(this.reconnectTimer);
     if (this.pending) {
-      this.pending.reject(new Error('connessione chiusa'));
+      this.pending.reject(new Error(t('net.closed')));
       this.pending = null;
     }
     if (this.pendingAck) {
-      this.pendingAck.reject(new Error('connessione chiusa'));
+      this.pendingAck.reject(new Error(t('net.closed')));
       this.pendingAck = null;
     }
     if (this.socket) {
@@ -195,7 +191,7 @@ class ViscaTransport extends EventEmitter {
   sendChecked(body, windowMs = 100) {
     const run = () => new Promise((resolve, reject) => {
       if (this.mode === 'tcp' && !this.connected) {
-        reject(new Error('camera non connessa'));
+        reject(new Error(t('net.notConnected')));
         return;
       }
       const timer = setTimeout(() => {
@@ -216,12 +212,12 @@ class ViscaTransport extends EventEmitter {
   inquire(body, timeoutMs = 900) {
     const run = () => new Promise((resolve, reject) => {
       if (this.mode === 'tcp' && !this.connected) {
-        reject(new Error('camera non connessa'));
+        reject(new Error(t('net.notConnected')));
         return;
       }
       const timer = setTimeout(() => {
         if (this.pending && this.pending.timer === timer) this.pending = null;
-        reject(new Error('nessuna risposta dalla camera'));
+        reject(new Error(t('net.noReply')));
       }, timeoutMs);
       this.pending = {
         timer,
@@ -267,7 +263,7 @@ class ViscaTransport extends EventEmitter {
     if (kind === 0x60) {
       const code = m[2];
       const socketNo = m[1] & 0x0f;
-      const err = new Error(`errore VISCA: ${ERRORS[code] || 'codice 0x' + code.toString(16)}`);
+      const err = new Error(t('visca.error', { detail: ERROR_KEYS[code] ? t(ERROR_KEYS[code]) : t('visca.code', { code: code.toString(16) }) }));
       err.code = code;
       // "buffer pieno" e "non eseguibile" riguardano i comandi; gli altri errori sul
       // socket 0 sono delle inquiry
@@ -308,9 +304,9 @@ class ViscaCamera extends EventEmitter {
     this.state = 'disconnected';
     this.healthTimer = null;
     this.failCount = 0;
-    this.t.on('error', (e) => this.emit('log', `rete: ${e.message}`));
+    this.t.on('error', (e) => this.emit('log', t('net.error', { error: e.message })));
     this.t.on('visca-error', (e) => this.emit('log', e.message));
-    this.t.on('disconnected', () => this._setState('disconnected', 'connessione persa, riprovo…'));
+    this.t.on('disconnected', () => this._setState('disconnected', t('net.lostRetry')));
     this.t.on('connected', () => {
       // dopo una (ri)connessione TCP: i comandi inviati durante l'interruzione sono
       // andati persi, quindi si manda uno stop per non lasciare la testa in movimento
@@ -358,7 +354,7 @@ class ViscaCamera extends EventEmitter {
   }
 
   _ensureLink() {
-    if (this.opts.mode === 'tcp' && !this.t.connected) throw new Error('camera non connessa');
+    if (this.opts.mode === 'tcp' && !this.t.connected) throw new Error(t('net.notConnected'));
   }
 
   // comando controllato; se la camera è occupata (buffer pieno) si ritenta per ~3 s
@@ -461,14 +457,14 @@ class ViscaCamera extends EventEmitter {
     // risposta: y0 50 [pan: 4 o 5 nibble] [tilt: 4 nibble] FF
     const data = pt.subarray(2, pt.length - 1);
     if (data.length !== 8 && data.length !== 9) {
-      throw new Error(`risposta posizione inattesa (${hex(pt)})`);
+      throw new Error(t('visca.badPosition', { reply: hex(pt) }));
     }
     const panDigits = data.length - 4;
     const pan = { raw: fromNibbles(data.subarray(0, panDigits)), digits: panDigits };
     const tilt = { raw: fromNibbles(data.subarray(panDigits)), digits: 4 };
 
     const zr = await this.t.inquire([0x09, 0x04, 0x47]);
-    if (zr.length !== 7) throw new Error(`risposta zoom inattesa (${hex(zr)})`);
+    if (zr.length !== 7) throw new Error(t('visca.badZoom', { reply: hex(zr) }));
     const zoom = fromNibbles(zr.subarray(2, 6));
 
     let focusAuto = true;
@@ -488,7 +484,7 @@ class ViscaCamera extends EventEmitter {
 
   // speed01 in (0, 1]
   async gotoPosition(pos, speed01 = 1) {
-    if (!pos || pos.kind !== 'visca') throw new Error('preset non compatibile con il protocollo VISCA');
+    if (!pos || pos.kind !== 'visca') throw new Error(t('visca.incompatible'));
     this._ensureLink();
     this.lastDrive = null;
     this.lastZoom = null;
@@ -498,16 +494,16 @@ class ViscaCamera extends EventEmitter {
     const manual = pos.focusAuto === false && pos.focus != null;
     // ordine: pan/tilt (parte subito), modalità fuoco, zoom, fuoco manuale.
     // Ogni comando che la camera rifiuta perché occupata viene ritentato.
-    const warn = (what, e) => this.emit('log', `richiamo ${what}: ${e.message}`);
+    const warn = (what, e) => this.emit('log', t('visca.recall', { what: t(`visca.what.${what}`), error: e.message }));
     await this._cmd([
       0x01, 0x06, 0x02, ps, ts,
       ...toNibbles(pos.pan.raw, pos.pan.digits),
       ...toNibbles(pos.tilt.raw, pos.tilt.digits),
     ]);
-    try { await this._cmd([0x01, 0x04, 0x38, manual ? 0x03 : 0x02]); } catch (e) { warn('modalità fuoco', e); }
+    try { await this._cmd([0x01, 0x04, 0x38, manual ? 0x03 : 0x02]); } catch (e) { warn('focusMode', e); }
     try { await this._cmd([0x01, 0x04, 0x47, ...toNibbles(pos.zoom, 4)]); } catch (e) { warn('zoom', e); }
     if (manual) {
-      try { await this._cmd([0x01, 0x04, 0x48, ...toNibbles(pos.focus, 4)]); } catch (e) { warn('fuoco', e); }
+      try { await this._cmd([0x01, 0x04, 0x48, ...toNibbles(pos.focus, 4)]); } catch (e) { warn('focus', e); }
     }
   }
 

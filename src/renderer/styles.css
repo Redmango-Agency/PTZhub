@@ -276,3 +276,4 @@ body.editing #btnCompact { display: none; }
 .ed-name { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); width: 300px; max-width: 100%; }
 .ed-name input { color: var(--text); font-size: 15px; padding: 9px 11px; }
 #edSave { min-width: 190px; }
+.dlg label.lang-row { max-width: 320px; }

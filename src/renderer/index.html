@@ -10,14 +10,14 @@
   <header class="topbar">
     <div class="cam-status" id="camStatus" title="">
       <span class="dot"></span>
-      <span id="camLabel">Camera non configurata</span>
+      <span id="camLabel" data-i18n="top.notConfigured">Camera non configurata</span>
       <span id="camDetail" class="muted"></span>
     </div>
-    <div class="account muted">Account <b id="account"></b></div>
+    <div class="account muted"><span data-i18n="top.account">Account</span> <b id="account"></b></div>
     <div class="spacer"></div>
-    <button id="btnCompact" class="ghost" title="Mostra solo anteprima e inquadrature">Compatta</button>
-    <button id="btnPin" class="ghost toggle" title="Tieni la finestra sopra le altre">In primo piano</button>
-    <button id="btnSettings" class="ghost" title="Impostazioni">Impostazioni</button>
+    <button id="btnCompact" class="ghost" data-i18n-title="top.compactTitle">Compatta</button>
+    <button id="btnPin" class="ghost toggle" data-i18n="top.pin" data-i18n-title="top.pinTitle">In primo piano</button>
+    <button id="btnSettings" class="ghost" data-i18n="top.settings">Impostazioni</button>
   </header>
 
   <main class="layout">
@@ -25,43 +25,43 @@
       <div class="video-wrap" id="videoWrap">
         <canvas id="video"></canvas>
         <video id="usbVideo" autoplay muted playsinline></video>
-        <div id="previewMsg" class="preview-msg">Anteprima non configurata</div>
+        <div id="previewMsg" class="preview-msg" data-i18n="preview.notConfigured">Anteprima non configurata</div>
         <div class="live-badge" id="liveBadge">LIVE</div>
       </div>
     </section>
 
     <aside class="controls">
       <div class="group">
-        <div class="group-title">Movimento <span class="hint">frecce · Maiusc = lento</span></div>
+        <div class="group-title"><span data-i18n="ctl.move">Movimento</span> <span class="hint" data-i18n="ctl.moveHint">frecce · Maiusc = lento</span></div>
         <div id="joy" class="joy" aria-label="Joystick">
           <div class="joy-cross"></div>
           <div class="knob"></div>
         </div>
         <label class="slider">
-          <span>Velocità</span>
+          <span data-i18n="ctl.speed">Velocità</span>
           <input type="range" id="moveSpeed" min="0.1" max="1" step="0.05">
           <output id="moveSpeedVal"></output>
         </label>
         <div class="row">
-          <button id="btnHome">Home</button>
-          <button id="btnStop" class="danger" title="Ferma tutto (Esc o Spazio)">STOP</button>
+          <button id="btnHome" data-i18n="ctl.home">Home</button>
+          <button id="btnStop" class="danger" data-i18n="ctl.stop" data-i18n-title="ctl.stopTitle">STOP</button>
         </div>
       </div>
 
       <div class="group">
-        <div class="group-title">Zoom <span class="hint">PagSu / PagGiù</span></div>
+        <div class="group-title"><span data-i18n="ctl.zoom">Zoom</span> <span class="hint" data-i18n="ctl.zoomHint">PagSu / PagGiù</span></div>
         <div class="row">
-          <button class="hold big" data-zoom="-1">− Largo</button>
-          <button class="hold big" data-zoom="1">+ Stretto</button>
+          <button class="hold big" data-zoom="-1" data-i18n="ctl.wide">− Largo</button>
+          <button class="hold big" data-zoom="1" data-i18n="ctl.tele">+ Stretto</button>
         </div>
-        <div class="group-title sub">Fuoco</div>
+        <div class="group-title sub" data-i18n="ctl.focus">Fuoco</div>
         <div class="row">
-          <button id="btnAF" class="toggle on">Automatico</button>
-          <button id="btnOnePush" title="Mette a fuoco una volta">Fuoco rapido</button>
+          <button id="btnAF" class="toggle on" data-i18n="ctl.af">Automatico</button>
+          <button id="btnOnePush" data-i18n="ctl.onePush" data-i18n-title="ctl.onePushTitle">Fuoco rapido</button>
         </div>
         <div class="row">
-          <button class="hold" data-focus="-1">Vicino</button>
-          <button class="hold" data-focus="1">Lontano</button>
+          <button class="hold" data-focus="-1" data-i18n="ctl.near">Vicino</button>
+          <button class="hold" data-focus="1" data-i18n="ctl.far">Lontano</button>
         </div>
       </div>
     </aside>
@@ -69,38 +69,38 @@
 
   <section class="presets">
     <div class="presets-head">
-      <span class="title">Inquadrature</span>
-      <span class="hint">tasti 1–9 e 0</span>
+      <span class="title" data-i18n="presets.title">Inquadrature</span>
+      <span class="hint" data-i18n="presets.hint">tasti 1–9 e 0</span>
       <div class="spacer"></div>
       <label class="slider compact-hide">
-        <span>Velocità richiamo</span>
+        <span data-i18n="presets.recallSpeed">Velocità richiamo</span>
         <input type="range" id="recallSpeed" min="0.05" max="1" step="0.05">
         <output id="recallSpeedVal"></output>
       </label>
-      <button id="btnStopCompact" class="danger compact-only" title="Ferma tutto (Esc o Spazio)">STOP</button>
-      <button id="btnSavePreset" class="primary">+ Nuova inquadratura</button>
+      <button id="btnStopCompact" class="danger compact-only" data-i18n="ctl.stop" data-i18n-title="ctl.stopTitle">STOP</button>
+      <button id="btnSavePreset" class="primary" data-i18n="presets.new">+ Nuova inquadratura</button>
     </div>
     <div id="presetGrid" class="preset-grid"></div>
   </section>
 
   <section class="editor" id="editor">
     <div class="editor-head">
-      <span class="title" id="edTitle">Nuova inquadratura</span>
+      <span class="title" id="edTitle" data-i18n="ed.new">Nuova inquadratura</span>
       <span class="key-badge" id="edKey"></span>
-      <span class="hint">Componi l’immagine con joystick, frecce e zoom. Quando è come la vuoi, premi Salva: posizione, zoom e fuoco vengono memorizzati.</span>
+      <span class="hint" data-i18n="ed.hint"></span>
     </div>
     <div class="editor-row">
-      <label class="ed-name">Nome
-        <input id="edName" maxlength="40" autocomplete="off" placeholder="es. Palco largo">
+      <label class="ed-name"><span data-i18n="ed.name">Nome</span>
+        <input id="edName" maxlength="40" autocomplete="off" data-i18n-placeholder="ed.namePlaceholder">
       </label>
       <div class="inline" id="edExisting">
-        <button id="edLeft" title="Sposta a sinistra nella griglia">◀ Sposta</button>
-        <button id="edRight" title="Sposta a destra nella griglia">Sposta ▶</button>
-        <button id="edDelete" class="danger-ghost">Elimina</button>
+        <button id="edLeft" data-i18n="ed.left" data-i18n-title="ed.leftTitle">◀ Sposta</button>
+        <button id="edRight" data-i18n="ed.right" data-i18n-title="ed.rightTitle">Sposta ▶</button>
+        <button id="edDelete" class="danger-ghost" data-i18n="ed.delete">Elimina</button>
       </div>
       <div class="spacer"></div>
-      <button id="edCancel" class="ghost">Annulla</button>
-      <button id="edSave" class="primary big">Salva inquadratura</button>
+      <button id="edCancel" class="ghost" data-i18n="ed.cancel">Annulla</button>
+      <button id="edSave" class="primary big" data-i18n="ed.save">Salva inquadratura</button>
     </div>
   </section>
 
@@ -109,18 +109,18 @@
   <!-- Impostazioni -->
   <dialog id="dlgSettings" class="dlg wide">
     <form method="dialog" id="formSettings">
-      <h2>Impostazioni</h2>
+      <h2 data-i18n="s.title">Impostazioni</h2>
 
       <fieldset>
-        <legend>Telecamera</legend>
+        <legend data-i18n="s.camera">Telecamera</legend>
         <div class="grid2">
-          <label>Indirizzo IP
+          <label><span data-i18n="s.host">Indirizzo IP</span>
             <div class="inline">
-              <input id="sHost" placeholder="es. 192.168.1.50" autocomplete="off">
-              <button type="button" id="btnDiscover">Cerca in rete</button>
+              <input id="sHost" data-i18n-placeholder="s.hostPlaceholder" autocomplete="off">
+              <button type="button" id="btnDiscover" data-i18n="s.discover">Cerca in rete</button>
             </div>
           </label>
-          <label>Protocollo
+          <label><span data-i18n="s.protocol">Protocollo</span>
             <select id="sProtocol">
               <option value="visca-udp">VISCA over IP — UDP (1259)</option>
               <option value="visca-tcp">VISCA over IP — TCP (5678)</option>
@@ -128,84 +128,91 @@
               <option value="onvif">ONVIF</option>
             </select>
           </label>
-          <label>Porta <input id="sPort" type="number" min="1" max="65535"></label>
-          <label>Indirizzo VISCA <input id="sAddress" type="number" min="1" max="7"></label>
-          <label>Utente (ONVIF / video) <input id="sUser" autocomplete="off"></label>
-          <label>Password <input id="sPass" type="password" autocomplete="off"></label>
+          <label><span data-i18n="s.port">Porta</span> <input id="sPort" type="number" min="1" max="65535"></label>
+          <label><span data-i18n="s.address">Indirizzo VISCA</span> <input id="sAddress" type="number" min="1" max="7"></label>
+          <label><span data-i18n="s.user">Utente (ONVIF / video)</span> <input id="sUser" autocomplete="off"></label>
+          <label><span data-i18n="s.pass">Password</span> <input id="sPass" type="password" autocomplete="off"></label>
         </div>
         <div class="inline">
-          <button type="button" id="btnDetect">Rileva protocollo</button>
-          <label class="check"><input type="checkbox" id="sInvertPan"> Inverti destra/sinistra</label>
-          <label class="check"><input type="checkbox" id="sInvertTilt"> Inverti su/giù</label>
+          <button type="button" id="btnDetect" data-i18n="s.detect">Rileva protocollo</button>
+          <label class="check"><input type="checkbox" id="sInvertPan"> <span data-i18n="s.invertPan">Inverti destra/sinistra</span></label>
+          <label class="check"><input type="checkbox" id="sInvertTilt"> <span data-i18n="s.invertTilt">Inverti su/giù</span></label>
         </div>
         <div id="discoverOut" class="out"></div>
       </fieldset>
 
       <fieldset>
-        <legend>Anteprima video</legend>
+        <legend data-i18n="s.preview">Anteprima video</legend>
         <div class="grid2">
-          <label>Sorgente
+          <label><span data-i18n="s.source">Sorgente</span>
             <select id="sSource">
-              <option value="rtsp">Rete (RTSP)</option>
-              <option value="usb">USB (la camera è collegata a questo PC)</option>
-              <option value="none">Nessuna</option>
+              <option value="rtsp" data-i18n="s.sourceRtsp">Rete (RTSP)</option>
+              <option value="usb" data-i18n="s.sourceUsb">USB (la camera è collegata a questo PC)</option>
+              <option value="none" data-i18n="s.sourceNone">Nessuna</option>
             </select>
           </label>
-          <label>Qualità anteprima
+          <label><span data-i18n="s.quality">Qualità anteprima</span>
             <select id="sWidth">
-              <option value="640">Leggera (640 px)</option>
-              <option value="960">Media (960 px)</option>
-              <option value="1280">Alta (1280 px)</option>
+              <option value="640" data-i18n="s.qualityLow">Leggera (640 px)</option>
+              <option value="960" data-i18n="s.qualityMid">Media (960 px)</option>
+              <option value="1280" data-i18n="s.qualityHigh">Alta (1280 px)</option>
             </select>
           </label>
         </div>
-        <label class="rtsp-only">Indirizzo flusso RTSP
+        <label class="rtsp-only"><span data-i18n="s.rtsp">Indirizzo flusso RTSP</span>
           <div class="inline">
             <input id="sRtsp" placeholder="rtsp://192.168.1.50:554/1" autocomplete="off">
-            <button type="button" id="btnFindRtsp">Trova</button>
-            <button type="button" id="btnTestRtsp">Prova</button>
+            <button type="button" id="btnFindRtsp" data-i18n="s.find">Trova</button>
+            <button type="button" id="btnTestRtsp" data-i18n="s.test">Prova</button>
           </div>
         </label>
-        <label class="usb-only">Dispositivo USB
+        <label class="usb-only"><span data-i18n="s.usb">Dispositivo USB</span>
           <select id="sUsb"></select>
         </label>
         <div class="inline">
-          <label class="check"><input type="checkbox" id="sRotate"> Ruota anteprima di 180°</label>
-          <label class="check"><input type="checkbox" id="sGrid"> Griglia dei terzi</label>
+          <label class="check"><input type="checkbox" id="sRotate"> <span data-i18n="s.rotate">Ruota anteprima di 180°</span></label>
+          <label class="check"><input type="checkbox" id="sGrid"> <span data-i18n="s.grid">Griglia dei terzi</span></label>
         </div>
         <div id="rtspOut" class="out"></div>
       </fieldset>
 
       <fieldset>
-        <legend>Inquadrature di questo account</legend>
+        <legend data-i18n="s.presets">Inquadrature di questo account</legend>
         <div class="grid2">
-          <label>Dove salvarle
+          <label><span data-i18n="s.presetMode">Dove salvarle</span>
             <select id="sPresetMode">
-              <option value="app">Nel programma (consigliato)</option>
-              <option value="slot">Nelle memorie della camera</option>
+              <option value="app" data-i18n="s.modeApp">Nel programma (consigliato)</option>
+              <option value="slot" data-i18n="s.modeSlot">Nelle memorie della camera</option>
             </select>
           </label>
-          <label class="slot-only">Prima memoria di questo account (fino a 20 inquadrature)
+          <label class="slot-only"><span data-i18n="s.slotBase">Prima memoria di questo account (fino a 20 inquadrature)</span>
             <input id="sSlotBase" type="number" min="0" max="240">
           </label>
         </div>
         <p class="note" id="presetModeNote"></p>
         <div class="inline">
-          <button type="button" id="btnExport">Esporta inquadrature…</button>
-          <button type="button" id="btnImport">Importa inquadrature…</button>
-          <button type="button" id="btnDataFolder" class="ghost">Apri cartella dati</button>
+          <button type="button" id="btnExport" data-i18n="s.export">Esporta inquadrature…</button>
+          <button type="button" id="btnImport" data-i18n="s.import">Importa inquadrature…</button>
+          <button type="button" id="btnDataFolder" class="ghost" data-i18n="s.dataFolder">Apri cartella dati</button>
         </div>
       </fieldset>
 
       <fieldset>
-        <legend>Durante l'evento</legend>
-        <label class="check"><input type="checkbox" id="sGlobal"> Scorciatoie attive anche con altri programmi in primo piano: Ctrl+Alt+1…0 richiama, Ctrl+Alt+S ferma</label>
+        <legend data-i18n="s.event">Durante l’evento</legend>
+        <label class="check"><input type="checkbox" id="sGlobal"> <span data-i18n="s.global"></span></label>
+        <label class="lang-row"><span data-i18n="s.language">Lingua</span>
+          <select id="sLanguage">
+            <option value="auto" data-i18n="s.langAuto">Automatica</option>
+            <option value="it">Italiano</option>
+            <option value="en">English</option>
+          </select>
+        </label>
       </fieldset>
 
       <p class="muted small" id="aboutLine"></p>
       <div class="actions rev">
-        <button id="btnSaveSettings" value="save" class="primary">Salva</button>
-        <button value="cancel" class="ghost">Annulla</button>
+        <button id="btnSaveSettings" value="save" class="primary" data-i18n="common.save">Salva</button>
+        <button value="cancel" class="ghost" data-i18n="common.cancel">Annulla</button>
       </div>
     </form>
   </dialog>
@@ -221,6 +228,7 @@
     </form>
   </dialog>
 
+  <script src="../shared/i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

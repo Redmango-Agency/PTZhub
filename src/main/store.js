@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS = {
   slotBase: 10,
   moveSpeed: 0.6,
   recallSpeed: 0.7,
+  language: 'auto', // auto = come Windows; oppure 'it' / 'en'
   alwaysOnTop: false,
   globalHotkeys: false,
   compact: false,

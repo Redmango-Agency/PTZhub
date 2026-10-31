@@ -1,6 +1,6 @@
 {
   "name": "ptz-panel",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Pannello di controllo per telecamere PTZ via rete (VISCA over IP, ONVIF): anteprima, joystick e inquadrature per ogni account Windows",
   "main": "src/main/main.js",
   "scripts": {
@@ -11,7 +11,7 @@
     "ffmpeg:win": "node scripts/fetch-ffmpeg.js win32-x64"
   },
   "author": "Redmango S.r.l.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "devDependencies": {
     "electron": "^45.2.1",
     "electron-builder": "^26.18.0",
@@ -56,6 +56,10 @@
           "filter": [
             "ffmpeg.exe"
           ]
+        },
+        {
+          "from": "build/licenses/ffmpeg-GPL-3.0.txt",
+          "to": "ffmpeg/LICENSE.txt"
         }
       ],
       "extraFiles": [
@@ -63,8 +67,17 @@
           "from": "build/win-extra",
           "to": ".",
           "filter": [
-            "LEGGIMI.txt"
+            "LEGGIMI.txt",
+            "README.txt"
           ]
+        },
+        {
+          "from": "LICENSE",
+          "to": "LICENSE.txt"
+        },
+        {
+          "from": "THIRD_PARTY_NOTICES.md",
+          "to": "THIRD_PARTY_NOTICES.md"
         }
       ],
       "icon": "build/icon.ico",

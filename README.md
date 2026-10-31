@@ -2,7 +2,7 @@
 
 Pannello di controllo gratuito per Windows per telecamere **PTZ** (testa mobile) collegate in rete: anteprima video, joystick, zoom e fuoco, e **inquadrature** richiamabili con un clic o un tasto. Pensato per eventi, conferenze, chiese e dirette streaming.
 
-> *English: free Windows control panel for network PTZ cameras (VISCA over IP, ONVIF) with live preview, joystick and per-user presets. The UI is currently in Italian.*
+> *English: free Windows control panel for network PTZ cameras (VISCA over IP, ONVIF) with live preview, joystick and per-user presets. The interface is available in Italian and English (chosen automatically from Windows).*
 
 ## Cosa fa
 
@@ -13,6 +13,7 @@ Pannello di controllo gratuito per Windows per telecamere **PTZ** (testa mobile)
 - **Comandi manuali**: joystick con velocità proporzionale, frecce (Maiusc = lento), zoom, fuoco automatico/manuale, Home, **STOP** (`Esc` o `Spazio`).
 - **Pensato per la diretta**: finestra sempre in primo piano, modalità compatta, stop di sicurezza su rilascio, perdita di fuoco della finestra e chiusura.
 - **Ricerca automatica**: trova le telecamere in rete (ONVIF WS-Discovery + scansione), rileva il protocollo e l'indirizzo del flusso video.
+- **Italiano e inglese**: lingua scelta in automatico da Windows, modificabile nelle Impostazioni.
 
 ## Telecamere compatibili
 
@@ -69,7 +70,14 @@ src/main/probe.js     ricerca telecamere e rilevamento protocolli
 src/main/preview.js   anteprima RTSP tramite ffmpeg
 src/main/store.js     impostazioni e inquadrature per account
 src/main/main.js      processo principale Electron
+src/shared/i18n.js    testi in italiano e inglese (per aggiungere una lingua basta un dizionario)
 src/renderer/         interfaccia
 test/                 telecamere simulate e test
 build/                icone, installer (NSIS) e script di impacchettamento
 ```
+
+## Licenza
+
+[MIT](LICENSE) © Redmango S.r.l. — libero da usare, modificare e ridistribuire, anche in ambito commerciale.
+
+L'installer include FFmpeg (GPL v3) come programma separato per l'anteprima video, ed Electron/Chromium: dettagli in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -3,6 +3,7 @@
 
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
+const { t } = require('../shared/i18n');
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const NS = [
@@ -176,7 +177,7 @@ class OnvifClient {
     this.mediaUrl = pick('Media');
     this.ptzUrl = pick('PTZ');
     this.imagingUrl = pick('Imaging');
-    if (!this.mediaUrl) throw new Error('ONVIF: servizio Media non trovato');
+    if (!this.mediaUrl) throw new Error(t('onvif.noMedia'));
 
     const prof = await this.call(this.mediaUrl, '<trt:GetProfiles/>');
     this.profiles = sections(prof, 'Profiles').map((p) => ({
@@ -188,10 +189,10 @@ class OnvifClient {
       height: parseInt(section(section(p.body, 'Resolution') || '', 'Height'), 10) || null,
     }));
     const main = this.profiles.find((p) => p.hasPtz) || this.profiles[0];
-    if (!main) throw new Error('ONVIF: nessun profilo video');
+    if (!main) throw new Error(t('onvif.noProfile'));
     this.profileToken = main.token;
     this.videoSourceToken = main.sourceToken;
-    if (!this.ptzUrl) throw new Error('ONVIF: la camera non espone il servizio PTZ');
+    if (!this.ptzUrl) throw new Error(t('onvif.noPtz'));
   }
 
   async streamUris() {
@@ -332,7 +333,7 @@ class OnvifCamera extends EventEmitter {
   // comandi Imaging in coda: l'ordine (manuale → muovi → ferma) è garantito
   _img(fn) {
     if (!this.c.imagingUrl || !this.c.videoSourceToken) return Promise.resolve();
-    const p = this.imgChain.then(fn).catch((e) => this.emit('log', `fuoco: ${e.message}`));
+    const p = this.imgChain.then(fn).catch((e) => this.emit('log', t('onvif.focus', { error: e.message })));
     this.imgChain = p;
     return p;
   }
@@ -394,18 +395,18 @@ class OnvifCamera extends EventEmitter {
     await this._waitIdle();
     const r = await this.c.ptz(`<tptz:GetStatus>${this.c.pt()}</tptz:GetStatus>`);
     const pos = section(r, 'Position');
-    if (!pos) throw new Error('ONVIF: la camera non comunica la posizione');
+    if (!pos) throw new Error(t('onvif.noPosition'));
     const pt = emptyTagAttrs(pos, 'PanTilt');
     const zm = emptyTagAttrs(pos, 'Zoom');
     const x = parseFloat(attr(pt, 'x'));
     const y = parseFloat(attr(pt, 'y'));
     const zoom = parseFloat(attr(zm, 'x'));
-    if ([x, y].some(Number.isNaN)) throw new Error('ONVIF: posizione non leggibile');
+    if ([x, y].some(Number.isNaN)) throw new Error(t('onvif.badPosition'));
     return { kind: 'onvif', x, y, zoom: Number.isNaN(zoom) ? null : zoom };
   }
 
   async gotoPosition(pos, speed01 = 1) {
-    if (!pos || pos.kind !== 'onvif') throw new Error('preset non compatibile con il protocollo ONVIF');
+    if (!pos || pos.kind !== 'onvif') throw new Error(t('onvif.incompatible'));
     // uno stop ancora in coda non deve interrompere il richiamo
     await this._waitIdle();
     const s = clamp(speed01, 0.05, 1).toFixed(2);
