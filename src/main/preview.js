@@ -134,6 +134,9 @@ class Preview extends EventEmitter {
       const p = this.proc;
       this.proc = null;
       try { p.kill(); } catch (_) { /* già chiuso */ }
+      // se ffmpeg non si chiude da solo (succede su Linux e Mac con alcune sorgenti) lo si chiude d'autorità
+      const force = setTimeout(() => { try { if (p.exitCode === null && p.signalCode === null) p.kill('SIGKILL'); } catch (_) { /* ignora */ } }, 1500);
+      p.once('exit', () => clearTimeout(force));
     }
     this.emit('status', { state: 'off', detail: '' });
   }

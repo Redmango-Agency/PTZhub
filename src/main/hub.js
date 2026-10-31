@@ -84,8 +84,10 @@ class Hub extends EventEmitter {
   }
 
   _supersede() {
+    const had = this.targetId;
     this.gen += 1;
     this.targetId = null;
+    if (had) this.changed(); // chi guarda lo stato (Stream Deck, OBS) vede che non sta più arrivando
   }
 
   presetsChanged() {

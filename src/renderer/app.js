@@ -220,6 +220,8 @@ function resetManualUi() {
   resetKnob();
 }
 
+$('#btnStopPage').addEventListener('click', () => stopAll());
+
 function stopAll() {
   resetManualUi();
   ptz.cmd('stop');
@@ -591,7 +593,7 @@ function applyPreviewSource() {
 }
 
 function captureThumb() {
-  if (!lastFrame) return null;
+  if (!lastFrame || previewState.state !== 'live') return null; // niente fotogrammi vecchi
   const [sw, sh] = sourceSize(lastFrame);
   if (!sw || !sh) return null;
   const c = document.createElement('canvas');
@@ -877,14 +879,21 @@ function applyView(v) {
   const swapTitle = t(other === 'left' ? 'v.toLeft' : 'v.toRight');
   $('#cSwap').title = swapTitle;
   $('#cSwap').setAttribute('aria-label', swapTitle);
+  // in Compatta la finestra resta sempre in primo piano: la puntina è accesa e bloccata
+  const cPinOn = v.mode === 'compact' || v.alwaysOnTop;
+  $('#cPin').setAttribute('aria-pressed', cPinOn ? 'true' : 'false');
+  $('#cPin').disabled = v.mode === 'compact';
   if (prevMode !== v.mode) {
-    if (v.mode !== 'full') resetManualUi();
+    if (v.mode !== 'full') stopManualOnly(); // manda lo stop se un movimento manuale era in corso
     applyPreviewSource();
   }
 }
 
 async function setViewMode(mode) {
   if (editor && mode !== 'full') return;
+  // un tasto o il joystick tenuti premuti non devono lasciare la camera in movimento
+  // quando la finestra cambia o sparisce (vista Laterale)
+  if (mode !== 'full') stopManualOnly();
   applyView(await ptz.setView(mode));
 }
 
@@ -1319,13 +1328,48 @@ $('#btnExport').addEventListener('click', async () => {
   } catch (e) { toast(errMsg(e), 'err'); }
 });
 
+// Inquadratura da un file importato: si tengono solo campi del tipo giusto
+// (un file preparato ad arte non deve poter alterare l'interfaccia, per esempio nascondere STOP)
+const THUMB_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+function cleanPos(pos) {
+  if (!pos || typeof pos !== 'object') return null;
+  const num = (v) => typeof v === 'number' && Number.isFinite(v);
+  const raw = (o) => o && num(o.raw) && (o.digits === 4 || o.digits === 5) ? { raw: o.raw, digits: o.digits } : null;
+  if (pos.kind === 'visca') {
+    const pan = raw(pos.pan);
+    const tilt = raw(pos.tilt);
+    if (!pan || !tilt || !num(pos.zoom)) return null;
+    return { kind: 'visca', pan, tilt, zoom: pos.zoom, focusAuto: pos.focusAuto !== false, focus: num(pos.focus) ? pos.focus : null };
+  }
+  if (pos.kind === 'onvif') {
+    if (!num(pos.x) || !num(pos.y)) return null;
+    return { kind: 'onvif', x: pos.x, y: pos.y, zoom: num(pos.zoom) ? pos.zoom : null };
+  }
+  return null;
+}
+function cleanImported(p) {
+  if (!p || typeof p !== 'object') return null;
+  const pos = cleanPos(p.pos);
+  const slot = Number.isInteger(p.slot) && p.slot >= 0 && p.slot <= 254 ? p.slot : null;
+  if (!pos && slot == null) return null;
+  const now = new Date().toISOString();
+  return {
+    name: String(p.name || '').slice(0, 80) || t('presets.defaultName', { n: presets.length + 1 }),
+    protocol: typeof p.protocol === 'string' ? p.protocol.slice(0, 20) : '',
+    pos, slot,
+    thumb: typeof p.thumb === 'string' && THUMB_RE.test(p.thumb) ? p.thumb : null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 $('#btnImport').addEventListener('click', async () => {
   let res;
   try { res = await ptz.importPresets(); } catch (e) { toast(errMsg(e), 'err'); return; }
   if (!res) return;
   const list = Array.isArray(res) ? res : res.presets;
   const file = Array.isArray(res) ? '' : res.name;
-  const valid = (list || []).filter((p) => p && (p.pos || p.slot != null));
+  const valid = (list || []).map(cleanImported).filter(Boolean);
   if (!valid.length) { toast(t('presets.importInvalid'), 'warn'); return; }
   const ok = await confirmDlg({
     icon: 'import',
@@ -1756,7 +1800,8 @@ async function wzCheck(host) {
     if (ok) wzCheckLine($('#wzCheckVideo'), 'ok', `${t('w.video')} · ${ok.display}`, t('w.videoOk'));
     else wzCheckLine($('#wzCheckVideo'), 'warn', t('w.video'), t('w.videoNone'));
     // la camera è già stata scelta mentre si cercava il video: si usa subito il flusso trovato
-    if (ok && wz.saved && wz.saved === host && !settings.preview.rtspUrl) await wzSavePreview('rtsp', ok.url);
+    if (ok && wz.saved && wz.saved === host && !settings.preview.rtspUrl
+      && document.body.classList.contains('wizard-open') && !wz.sourcePicked) await wzSavePreview('rtsp', ok.url);
   } catch (e) {
     if (token !== wz.token) return;
     wz.rtsp = { url: '', display: '' };
@@ -1862,6 +1907,7 @@ function renderWzVideo() {
 }
 
 $('#wzSources').addEventListener('change', (e) => {
+  if (e.target.name === 'wzSrc') wz.sourcePicked = true; // scelta dell'utente: non va più cambiata da sola
   if (e.target.name !== 'wzSrc') return;
   wzSavePreview(e.target.value);
 });

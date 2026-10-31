@@ -29,12 +29,22 @@ try {
   const OLD_DATA_DIR = path.join(app.getPath('appData'), 'PTZ Panel');
   if (!fs.existsSync(path.join(DATA_DIR, 'impostazioni.json')) && fs.existsSync(path.join(OLD_DATA_DIR, 'impostazioni.json'))) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    for (const f of ['impostazioni.json', 'preset.json', 'preset.json.bak']) {
+    // prima le inquadrature, per ultime le impostazioni: sono loro il segnale "copia fatta",
+    // così una copia interrotta (antivirus, OneDrive) viene ripetuta al prossimo avvio
+    for (const f of ['preset.json.bak', 'preset.json', 'impostazioni.json']) {
       const src = path.join(OLD_DATA_DIR, f);
-      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(DATA_DIR, f));
+      if (!fs.existsSync(src)) continue;
+      const dst = path.join(DATA_DIR, f);
+      fs.copyFileSync(src, `${dst}.tmp`);
+      fs.renameSync(`${dst}.tmp`, dst);
     }
   }
-} catch (_) { /* si parte con impostazioni nuove */ }
+} catch (e) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.appendFileSync(path.join(DATA_DIR, 'errori.log'), `${new Date().toISOString()} copia da PTZ Panel non riuscita: ${e && e.message}\n`);
+  } catch (_) { /* ignora */ }
+}
 app.setPath('userData', DATA_DIR);
 
 const gotLock = app.requestSingleInstanceLock();
@@ -265,7 +275,8 @@ function fullBounds() {
 }
 
 function applyOnTop() {
-  if (win && !win.isDestroyed()) win.setAlwaysOnTop(!!store.settings.alwaysOnTop, 'floating');
+  // la vista Compatta resta sempre sopra le altre finestre (è il suo scopo); la completa solo se richiesto
+  if (win && !win.isDestroyed()) win.setAlwaysOnTop(currentMode === 'compact' || !!store.settings.alwaysOnTop, 'floating');
 }
 
 // limiti di dimensione della finestra principale per la vista indicata
@@ -293,13 +304,24 @@ function rememberFullBounds() {
   try { store.saveSettings({ bounds: normalBounds }); } catch (_) { /* non essenziale */ }
 }
 
-function setView(mode) {
+async function setView(mode) {
   if (!VIEW_MODES.includes(mode)) mode = 'full';
   if (!win || win.isDestroyed()) return viewState();
+  // durante la modifica di un'inquadratura si resta nella vista completa (l'editor è lì)
+  if (mode !== 'full' && hub && hub.editing) return viewState();
   const prev = currentMode;
   if (prev === mode) {
     if (mode !== 'side') { win.show(); win.focus(); }
     return viewState();
+  }
+  // da schermo intero (Mac) si esce prima: è asincrono e altrimenti dimensioni e Space restano sbagliati
+  if (win.isFullScreen()) {
+    await new Promise((resolve) => {
+      const tm = setTimeout(resolve, 1500);
+      win.once('leave-full-screen', () => { clearTimeout(tm); setTimeout(resolve, 80); });
+      win.setFullScreen(false);
+    });
+    if (!win || win.isDestroyed()) return viewState();
   }
   const display = currentDisplay();
   rememberFullBounds();
@@ -357,6 +379,17 @@ function sideBounds(expanded) {
   return { x, y, width: w, height: h };
 }
 
+// Schermo staccato o area di lavoro cambiata (barra delle applicazioni, risoluzione):
+// la linguetta e la colonna compatta tornano agganciate al bordo
+function relayoutReducedViews() {
+  if (currentMode === 'side' && sideWin && !sideWin.isDestroyed()) {
+    if (!screen.getAllDisplays().some((d) => d.id === sideDisplayId)) sideDisplayId = screen.getPrimaryDisplay().id;
+    placeSideWindow(sideExpanded);
+  } else if (currentMode === 'compact' && win && !win.isDestroyed()) {
+    win.setBounds(compactBounds(currentDisplay(), viewSide(), win.getBounds()));
+  }
+}
+
 function placeSideWindow(expanded) {
   if (!sideWin || sideWin.isDestroyed()) return;
   sideExpanded = !!expanded;
@@ -406,7 +439,7 @@ function showSideWindow(display) {
   });
   sideWin.setMenu(null);
   sideWin.setAlwaysOnTop(true, 'floating');
-  if (IS_MAC) sideWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (IS_MAC) sideWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   sideWin.loadFile(path.join(__dirname, '..', 'renderer', 'side.html'));
   sideWin.once('ready-to-show', () => { if (sideWin && !sideWin.isDestroyed()) sideWin.showInactive(); });
   sideWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -773,7 +806,7 @@ function registerIpc() {
     return viewState();
   });
   // compatibilità con la 1.3: compatta sì/no
-  ipcMain.handle('app:setCompact', (_e, on) => setView(on ? 'compact' : 'full').mode === 'compact');
+  ipcMain.handle('app:setCompact', async (_e, on) => (await setView(on ? 'compact' : 'full')).mode === 'compact');
   ipcMain.on('side:expand', (e, on) => { if (fromSide(e)) placeSideWindow(!!on); });
 
   // pulsanti della barra del titolo disegnata dall'app
@@ -821,6 +854,9 @@ app.whenReady().then(() => {
   if (IS_MAC) {
     // sul Mac serve il menu in alto: Esci (⌘Q) e Copia/Incolla nei campi di testo
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
+  }
+  for (const ev of ['display-removed', 'display-added', 'display-metrics-changed']) {
+    screen.on(ev, () => setTimeout(relayoutReducedViews, 300));
   }
   const sharedDefaults = path.join(path.dirname(process.execPath), 'ptz-defaults.json');
   store = new Store(app.getPath('userData'), sharedDefaults, os.userInfo().username);

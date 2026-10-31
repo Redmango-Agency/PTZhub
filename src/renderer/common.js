@@ -62,7 +62,8 @@
   // grande; con l'immagine: il numero resta come piccolo distintivo (big = false nelle righe).
   function thumbHtml(p, i, { big = true } = {}) {
     const num = esc(presetNum(i));
-    if (p && p.thumb) {
+    // solo immagini incorporate valide: niente testo arbitrario dentro l'attributo style
+    if (p && typeof p.thumb === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(p.thumb)) {
       return `<span class="thumb has-img" style="background-image:url('${p.thumb}')">`
         + `${big ? `<span class="num-badge">${num}</span>` : `<span class="num-over">${num}</span>`}</span>`;
     }

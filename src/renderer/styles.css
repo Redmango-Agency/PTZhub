@@ -543,3 +543,8 @@ body.settings-open .toasts, body.wizard-open .toasts { top: 52px; }
   #btnSettings span { display: none; }
   .layout { gap: 16px; }
 }
+
+/* STOP nella barra del titolo quando impostazioni o primo avvio occupano la finestra */
+.tb-stop { display: none; align-items: center; height: 28px; margin: 0 10px; padding: 0 16px; border: 0; border-radius: 999px; background: #D70015; color: #FFFFFF; font-size: 12px; font-weight: 700; letter-spacing: .04em; cursor: pointer; -webkit-app-region: no-drag; }
+.tb-stop:hover { background: #B80012; }
+body.settings-open .tb-stop, body.wizard-open .tb-stop { display: inline-flex; }
