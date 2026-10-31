@@ -1,4 +1,4 @@
-# Contribuire a PTZ Panel
+# Contribuire a PTZ Hub
 
 Grazie dell'interesse! *English speakers are welcome: issues and pull requests in English are fine.*
 

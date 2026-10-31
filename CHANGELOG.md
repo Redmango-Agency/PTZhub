@@ -1,10 +1,11 @@
 # Novità
 
-Tutte le versioni di PTZ Panel. Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e le versioni seguono il [Semantic Versioning](https://semver.org/lang/it/).
+Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e le versioni seguono il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non ancora pubblicata]
 
 ### In arrivo nella 1.4
+- Il programma si chiama **PTZ Hub**; inquadrature e impostazioni di PTZ Panel vengono spostate in automatico.
 - Interfaccia chiara completa: Regia, editor, impostazioni a sezioni, primo avvio guidato.
 - Vista **Compatta** (colonna sempre in primo piano) e **Laterale** (linguetta sul bordo dello schermo che si apre col mouse), a destra o a sinistra.
 - Plugin per **Stream Deck** con miniatura, nome e luce «in onda» sui tasti.

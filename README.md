@@ -1,108 +1,91 @@
-# PTZ Panel
+# PTZ Hub
 
-Pannello di controllo gratuito per Windows per telecamere **PTZ** (testa mobile) collegate in rete: anteprima video, joystick, zoom e fuoco, e **inquadrature** richiamabili con un clic o un tasto. Pensato per eventi, conferenze, chiese e dirette streaming.
+Free PTZ camera controller for network cameras, with OBS, Stream Deck and macro keyboard integration. Windows & macOS.
 
-> *English: free Windows control panel for network PTZ cameras (VISCA over IP, ONVIF) with live preview, joystick and per-user presets. The interface is available in Italian and English (chosen automatically from Windows).*
+**English** · [Italiano](README.it.md)
 
-## Cosa fa
+PTZ Hub gives you live preview, joystick, zoom and focus, and **presets** you recall with one click or one key. Built for events, conferences, churches and live streaming. *(Up to version 1.3 the program was called PTZ Panel.)*
 
-- **Inquadrature con editor dedicato**: «+ Nuova inquadratura» apre l'editor con anteprima e comandi; posizioni la camera e salvi. Vengono memorizzate le coordinate esatte (pan, tilt, zoom, fuoco) lette dalla camera, più una miniatura. Al richiamo la testa torna esattamente lì.
-- **Inquadrature separate per ogni account Windows** (cartella `%APPDATA%\PTZ Panel`), con esportazione e importazione.
-- **Richiamo rapido**: clic sulla miniatura, tasti `1`–`9` e `0`, oppure scorciatoie globali `Ctrl+Alt+1…0` che funzionano anche con OBS, vMix o PowerPoint in primo piano.
-- **Anteprima video** RTSP (ffmpeg incluso) o USB, griglia dei terzi, rotazione 180° per montaggio a soffitto.
-- **Comandi manuali**: joystick con velocità proporzionale, frecce (Maiusc = lento), zoom, fuoco automatico/manuale, Home, **STOP** (`Esc` o `Spazio`).
-- **Pensato per la diretta**: finestra sempre in primo piano, modalità compatta, stop di sicurezza su rilascio, perdita di fuoco della finestra e chiusura.
-- **Ricerca automatica**: trova le telecamere in rete (ONVIF WS-Discovery + scansione), rileva il protocollo e l'indirizzo del flusso video.
-- **Italiano e inglese**: lingua scelta in automatico da Windows, modificabile nelle Impostazioni.
-- **Centro operativo per OBS, Stream Deck e tastiere macro**: pannello da agganciare in OBS, indirizzi web per ogni funzione (Stream Deck, Bitfocus Companion) e tasti globali assegnabili a ogni funzione. Tutti passano dal programma e vedono la stessa inquadratura attiva. Dettagli in [docs/comandi-esterni.md](docs/comandi-esterni.md).
+## Features
 
-## Telecamere compatibili
+- **Presets with a dedicated editor**: "+ New preset" opens the editor with preview and controls; position the camera and save. The exact coordinates (pan, tilt, zoom, focus) read from the camera are stored, plus a thumbnail. On recall the head goes back exactly there.
+- **Separate presets for every Windows / macOS account**, with export and import.
+- **Fast recall**: click the thumbnail, keys `1`–`9` and `0`, or global shortcuts that also work with OBS, vMix or PowerPoint in front.
+- **Live preview** over RTSP (ffmpeg included) or USB, rule-of-thirds grid, 180° rotation for ceiling mounts.
+- **Manual control**: proportional joystick, arrow keys (Shift = slow), zoom, auto/manual focus, Home, **STOP** (`Esc` or `Space`).
+- **Made for live shows**: always-on-top window, safety stop on release, on focus loss and on quit; a recall in progress is interrupted by STOP.
+- **Reduced views** *(1.4)*: **Compact** column always on top, or a **Side** tab docked to the left or right edge of the screen that opens on mouse hover.
+- **Automatic discovery**: finds cameras on the network (ONVIF WS-Discovery + scan), detects the protocol and the video stream address.
+- **Hub for OBS, Stream Deck and macro keyboards**: a dock for OBS, a web address for every function (Stream Deck, Bitfocus Companion), global keys for every function, and a **Stream Deck plugin** with thumbnails, names and an "on air" light on the keys *(1.4)*. Everything goes through the program, so all of them show the same active preset. Details in [docs/comandi-esterni.md](docs/comandi-esterni.md) (Italian).
+- **Italian and English**, chosen automatically from the system language.
 
-Funziona con le telecamere PTZ che si controllano via rete con protocolli standard:
+## Supported cameras
 
-| Protocollo | Porta tipica | Esempi di marche |
+PTZ cameras controlled over the network with standard protocols:
+
+| Protocol | Typical port | Brands |
 |---|---|---|
-| VISCA over IP (UDP) | 1259 | Tenveo, PTZOptics, AViPAS, BZBGear, Minrray e cloni |
-| VISCA over IP (TCP) | 5678 | come sopra |
-| Sony VISCA over IP | 52381 | Sony SRG/BRC e compatibili |
-| ONVIF PTZ | 80 / 8000 / 8080 | molte camere IP e PTZ |
+| VISCA over IP (UDP) | 1259 | Tenveo, PTZOptics, AViPAS, BZBGear, Minrray and clones |
+| VISCA over IP (TCP) | 5678 | as above |
+| Sony VISCA over IP | 52381 | Sony SRG/BRC and compatible |
+| ONVIF PTZ | 80 / 8000 / 8080 | many IP and PTZ cameras |
 
-Se la camera non sa comunicare la propria posizione, il programma usa le memorie interne della camera (ogni account su numerazioni diverse).
+If the camera can't report its position, presets use the camera's internal memories (each account on a different range).
 
-**Non ancora supportate**: telecamere controllabili solo via seriale RS-232/RS-485, Panasonic AW (protocollo HTTP proprietario), webcam PTZ solo USB.
+**Not supported yet**: cameras controlled only through RS-232/RS-485 serial, Panasonic AW (proprietary HTTP), USB-only PTZ webcams (USB cameras work for the preview, not for moving the head).
 
-Il supporto è in fase di collaudo: se la provi con il tuo modello, apri una *Issue* indicando marca, modello e se funziona.
+Support is being field-tested: if you try it with your model, open an [issue](https://github.com/Redmango-Agency/PTZhub/issues/new/choose) ("Camera tested").
 
-## Installazione
+## Install
 
-1. Scarica `PTZ-Panel-Setup-<versione>.exe` dalla pagina [**Releases**](https://github.com/Redmango-Agency/PTZhub/releases).
-2. Avvialo: installa il programma per tutti gli account del PC, crea i collegamenti e apre il firewall per la telecamera.
-3. Windows può avvisare che il programma non è firmato: «Ulteriori informazioni» → «Esegui comunque».
+### Windows
+1. Download `…-Setup-<version>.exe` from [Releases](https://github.com/Redmango-Agency/PTZhub/releases).
+2. Run it: it installs for all accounts on the PC, creates shortcuts and opens the firewall for the camera.
+3. Windows may warn that the program isn't signed: "More info" → "Run anyway".
 
-C'è anche una versione portatile (`…-portable-win-x64.zip`) da estrarre e avviare senza installazione.
+A portable version (`…-portable-win-x64.zip`) is also available.
 
-### Mac (in prova)
+### Mac (beta)
+1. Download `…-mac-arm64.dmg` for Apple Silicon (M1–M4) or `…-mac-x64.dmg` for Intel Macs.
+2. Open the dmg and drag the app to Applications.
+3. The app isn't signed by Apple yet: the first time, open Terminal and paste
+   `xattr -cr "/Applications/PTZ Hub.app"` (for versions up to 1.3: `"/Applications/PTZ Panel.app"`),
+   otherwise macOS says the app "is damaged".
+4. On the first camera search allow access to the local network.
 
-1. Scarica il dmg adatto: `…-mac-arm64.dmg` per i Mac con chip Apple (M1–M4), `…-mac-x64.dmg` per i Mac Intel.
-2. Apri il dmg e trascina «PTZ Panel» in Applicazioni.
-3. L'app non è ancora firmata da Apple: la prima volta apri il Terminale e incolla
-   `xattr -cr "/Applications/PTZ Panel.app"`
-   (senza questo passo macOS dice che l'app «è danneggiata»).
-4. Alla prima ricerca della telecamera consenti l'accesso alla rete locale.
+### Updates
+At startup and then once a day the program asks GitHub for the latest published version. If there's a newer one, a "Download" notice appears at the top and opens the release page: the program never downloads or installs anything by itself, so nothing changes during an event. You can turn the check off in Settings.
 
-### Aggiornamenti
+## Getting started
+1. On first start the program searches the network and suggests the camera (or type its IP).
+2. Video preview: it finds the RTSP stream; choose USB if the camera is connected to this computer.
+3. "+ New preset" to create your shots.
 
-All'avvio e poi una volta al giorno il programma chiede a GitHub qual è l'ultima versione pubblicata. Se ce n'è una più recente compare in alto «Nuova versione … · Scarica», che apre la pagina della release: il programma non scarica e non installa nulla da solo, così durante un evento non cambia niente. Il controllo si spegne in Impostazioni → Aggiornamenti (lì c'è anche «Controlla ora»). L'unica informazione inviata è la versione installata, nell'intestazione della richiesta.
-
-## Primo utilizzo
-
-1. **Impostazioni** → «Cerca in rete» e clicca la telecamera (oppure scrivi l'IP e premi «Rileva protocollo»).
-2. Anteprima video: «Trova» cerca il flusso RTSP. Se la camera è in USB su questo PC, scegli «USB».
-3. Salva, poi «+ Nuova inquadratura» per creare le inquadrature.
-
-## Sviluppo
-
-Serve Node.js 22.
+## Development
+Node.js 22.
 
 ```bash
 npm install
-npm run ffmpeg:win      # scarica ffmpeg per il pacchetto Windows (non è nel repository)
-npm start               # avvia l'app
-npm test                # test dei protocolli con telecamere simulate (VISCA e ONVIF)
-npm run dist:win        # crea installer e versione portatile in dist/
-node tools/rileva-camera.js [--ip 192.168.1.50]   # diagnosi della rete da riga di comando
+npm run ffmpeg:win      # ffmpeg for the Windows package (not in the repository); Mac: node scripts/fetch-ffmpeg.js darwin-arm64
+npm start
+npm test                # protocols with simulated cameras (VISCA, ONVIF), external control, updates
+npm run dist:win        # installer and portable version in dist/
 ```
 
-Su GitHub installer Windows e dmg per Mac vengono creati automaticamente (GitHub Actions) a ogni tag `v*` e pubblicati nelle [Releases](https://github.com/Redmango-Agency/PTZhub/releases). Le novità di ogni versione sono in [CHANGELOG.md](CHANGELOG.md).
-
-Per il controllo aggiornamenti, `package.json` → `ptzPanel.updateRepo` indica il repository (`proprietario/nome`); se è vuoto il controllo è spento. Pubblica le release con tag `vX.Y.Z` uguale alla versione del `package.json`: le pre-release non vengono proposte.
-
-### Struttura
+GitHub Actions builds the Windows installer and the Mac dmgs on every `v*` tag and publishes them in Releases. See [CHANGELOG.md](CHANGELOG.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```
-src/main/visca.js     driver VISCA over IP (UDP, TCP, Sony)
-src/main/onvif.js     client ONVIF (PTZ, Media, Imaging)
-src/main/probe.js     ricerca telecamere e rilevamento protocolli
-src/main/preview.js   anteprima RTSP tramite ffmpeg
-src/main/store.js     impostazioni e inquadrature per account
-src/main/hub.js       centro operativo: richiami, impulsi, STOP, stato condiviso
-src/main/control.js   collegamento locale per OBS, Stream Deck e Companion
-src/main/updates.js   controllo nuove versioni su GitHub (avvisa soltanto)
-src/control/          pannello per OBS
-src/main/main.js      processo principale Electron
-src/shared/i18n.js    testi in italiano e inglese (per aggiungere una lingua basta un dizionario)
-src/renderer/         interfaccia
-test/                 telecamere simulate e test
-build/                icone, installer (NSIS) e script di impacchettamento
+src/main/      camera drivers (visca.js, onvif.js), discovery, preview, per-account storage,
+               hub.js (command hub), control.js (local API for OBS/Stream Deck), updates.js
+src/renderer/  user interface          src/control/  OBS dock
+src/shared/    Italian and English texts          test/  simulated cameras and tests
+build/         icons, installer and packaging scripts
 ```
 
-## Contribuire e sicurezza
+## Security
+Vulnerabilities: report them privately, see [SECURITY.md](SECURITY.md).
 
-- Hai provato una telecamera o trovato un problema? Apri una [Issue](https://github.com/Redmango-Agency/PTZhub/issues/new/choose). Come contribuire: [CONTRIBUTING.md](CONTRIBUTING.md).
-- Vulnerabilità: segnalale in privato, vedi [SECURITY.md](SECURITY.md).
+## License
+[MIT](LICENSE) © Redmango S.r.l. — free to use, modify and redistribute, including commercial use.
 
-## Licenza
-
-[MIT](LICENSE) © Redmango S.r.l. — libero da usare, modificare e ridistribuire, anche in ambito commerciale.
-
-L'installer include FFmpeg (GPL v3) come programma separato per l'anteprima video, ed Electron/Chromium: dettagli in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The packages include FFmpeg (GPL v3) as a separate program for the video preview, and Electron/Chromium: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
