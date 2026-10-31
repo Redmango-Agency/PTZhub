@@ -1,0 +1,49 @@
+name: Build Windows
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installa le dipendenze
+        run: npm ci
+
+      - name: Scarica ffmpeg per Windows
+        run: node scripts/fetch-ffmpeg.js win32-x64
+
+      - name: Test (telecamere simulate VISCA e ONVIF)
+        run: npm test
+
+      - name: Crea installer e versione portatile
+        run: npx electron-builder --win --x64 --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ptz-panel-windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+
+      - name: Pubblica la release (solo sui tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.zip
+          generate_release_notes: true

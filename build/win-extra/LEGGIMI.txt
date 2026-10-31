@@ -1,0 +1,42 @@
+PTZ PANEL — pannello di controllo per telecamere PTZ
+=====================================================
+
+INSTALLAZIONE
+1. Avvia "PTZ-Panel-Setup-<versione>.exe" e segui la procedura: il programma viene
+   installato per tutti gli account del PC, con collegamenti nel menu Start
+   e sul desktop. L'installer apre anche il firewall per la telecamera.
+2. Windows può mostrare "PC protetto da Windows" (il programma non è firmato):
+   clic su "Ulteriori informazioni" > "Esegui comunque".
+   Versione portatile (zip): basta estrarla e avviare "PTZ Panel.exe"; se
+   compare il Firewall, spunta sia le reti private sia quelle pubbliche.
+
+PRIMA CONFIGURAZIONE (una volta per account)
+1. Impostazioni > "Cerca in rete" e clicca l'indirizzo della camera
+   (oppure scrivi l'IP e premi "Rileva protocollo").
+2. Anteprima video: "Trova" cerca da solo il flusso RTSP.
+   Se la camera è collegata in USB a questo PC, scegli "USB".
+3. Salva.
+
+CONFIGURAZIONE CONDIVISA (facoltativa)
+Se nella cartella del programma metti un file "ptz-defaults.json" (copialo
+da Impostazioni > Apri cartella dati > impostazioni.json di un account già
+configurato), ogni nuovo account parte già con IP, protocollo e video
+impostati. Le inquadrature restano sempre separate per account.
+
+USO
+- "+ Nuova inquadratura": si apre l'editor con anteprima e comandi. Componi
+  l'immagine con joystick, frecce e zoom, dai un nome e premi Salva: vengono
+  memorizzati posizione, zoom e fuoco della camera, più una miniatura.
+- Clic sull'inquadratura o tasti 1…9, 0: la camera torna esattamente lì.
+- Matita (o clic destro) su un'inquadratura: la camera ci va e puoi
+  ritoccarla, rinominarla, spostarla o eliminarla.
+- Joystick o frecce: muovi (Maiusc = lento). PagSu/PagGiù o +/-: zoom.
+- Esc o Spazio: STOP immediato.
+- "In primo piano": la finestra resta sopra OBS/vMix/PowerPoint.
+- "Compatta": solo anteprima piccola, inquadrature e STOP.
+- Impostazioni > "Scorciatoie attive anche con altri programmi":
+  Ctrl+Alt+1…0 richiama, Ctrl+Alt+S ferma, anche se l'app è in secondo piano.
+
+DOVE SONO I DATI
+%APPDATA%\PTZ Panel (impostazioni.json e preset.json), uno per account.
+Da Impostazioni si possono esportare e importare le inquadrature.

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>PTZ Panel</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="cam-status" id="camStatus" title="">
+      <span class="dot"></span>
+      <span id="camLabel">Camera non configurata</span>
+      <span id="camDetail" class="muted"></span>
+    </div>
+    <div class="account muted">Account <b id="account"></b></div>
+    <div class="spacer"></div>
+    <button id="btnCompact" class="ghost" title="Mostra solo anteprima e inquadrature">Compatta</button>
+    <button id="btnPin" class="ghost toggle" title="Tieni la finestra sopra le altre">In primo piano</button>
+    <button id="btnSettings" class="ghost" title="Impostazioni">Impostazioni</button>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="video-wrap" id="videoWrap">
+        <canvas id="video"></canvas>
+        <video id="usbVideo" autoplay muted playsinline></video>
+        <div id="previewMsg" class="preview-msg">Anteprima non configurata</div>
+        <div class="live-badge" id="liveBadge">LIVE</div>
+      </div>
+    </section>
+
+    <aside class="controls">
+      <div class="group">
+        <div class="group-title">Movimento <span class="hint">frecce · Maiusc = lento</span></div>
+        <div id="joy" class="joy" aria-label="Joystick">
+          <div class="joy-cross"></div>
+          <div class="knob"></div>
+        </div>
+        <label class="slider">
+          <span>Velocità</span>
+          <input type="range" id="moveSpeed" min="0.1" max="1" step="0.05">
+          <output id="moveSpeedVal"></output>
+        </label>
+        <div class="row">
+          <button id="btnHome">Home</button>
+          <button id="btnStop" class="danger" title="Ferma tutto (Esc o Spazio)">STOP</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Zoom <span class="hint">PagSu / PagGiù</span></div>
+        <div class="row">
+          <button class="hold big" data-zoom="-1">− Largo</button>
+          <button class="hold big" data-zoom="1">+ Stretto</button>
+        </div>
+        <div class="group-title sub">Fuoco</div>
+        <div class="row">
+          <button id="btnAF" class="toggle on">Automatico</button>
+          <button id="btnOnePush" title="Mette a fuoco una volta">Fuoco rapido</button>
+        </div>
+        <div class="row">
+          <button class="hold" data-focus="-1">Vicino</button>
+          <button class="hold" data-focus="1">Lontano</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <section class="presets">
+    <div class="presets-head">
+      <span class="title">Inquadrature</span>
+      <span class="hint">tasti 1–9 e 0</span>
+      <div class="spacer"></div>
+      <label class="slider compact-hide">
+        <span>Velocità richiamo</span>
+        <input type="range" id="recallSpeed" min="0.05" max="1" step="0.05">
+        <output id="recallSpeedVal"></output>
+      </label>
+      <button id="btnStopCompact" class="danger compact-only" title="Ferma tutto (Esc o Spazio)">STOP</button>
+      <button id="btnSavePreset" class="primary">+ Nuova inquadratura</button>
+    </div>
+    <div id="presetGrid" class="preset-grid"></div>
+  </section>
+
+  <section class="editor" id="editor">
+    <div class="editor-head">
+      <span class="title" id="edTitle">Nuova inquadratura</span>
+      <span class="key-badge" id="edKey"></span>
+      <span class="hint">Componi l’immagine con joystick, frecce e zoom. Quando è come la vuoi, premi Salva: posizione, zoom e fuoco vengono memorizzati.</span>
+    </div>
+    <div class="editor-row">
+      <label class="ed-name">Nome
+        <input id="edName" maxlength="40" autocomplete="off" placeholder="es. Palco largo">
+      </label>
+      <div class="inline" id="edExisting">
+        <button id="edLeft" title="Sposta a sinistra nella griglia">◀ Sposta</button>
+        <button id="edRight" title="Sposta a destra nella griglia">Sposta ▶</button>
+        <button id="edDelete" class="danger-ghost">Elimina</button>
+      </div>
+      <div class="spacer"></div>
+      <button id="edCancel" class="ghost">Annulla</button>
+      <button id="edSave" class="primary big">Salva inquadratura</button>
+    </div>
+  </section>
+
+  <div id="toasts" class="toasts"></div>
+
+  <!-- Impostazioni -->
+  <dialog id="dlgSettings" class="dlg wide">
+    <form method="dialog" id="formSettings">
+      <h2>Impostazioni</h2>
+
+      <fieldset>
+        <legend>Telecamera</legend>
+        <div class="grid2">
+          <label>Indirizzo IP
+            <div class="inline">
+              <input id="sHost" placeholder="es. 192.168.1.50" autocomplete="off">
+              <button type="button" id="btnDiscover">Cerca in rete</button>
+            </div>
+          </label>
+          <label>Protocollo
+            <select id="sProtocol">
+              <option value="visca-udp">VISCA over IP — UDP (1259)</option>
+              <option value="visca-tcp">VISCA over IP — TCP (5678)</option>
+              <option value="visca-sony">Sony VISCA over IP (52381)</option>
+              <option value="onvif">ONVIF</option>
+            </select>
+          </label>
+          <label>Porta <input id="sPort" type="number" min="1" max="65535"></label>
+          <label>Indirizzo VISCA <input id="sAddress" type="number" min="1" max="7"></label>
+          <label>Utente (ONVIF / video) <input id="sUser" autocomplete="off"></label>
+          <label>Password <input id="sPass" type="password" autocomplete="off"></label>
+        </div>
+        <div class="inline">
+          <button type="button" id="btnDetect">Rileva protocollo</button>
+          <label class="check"><input type="checkbox" id="sInvertPan"> Inverti destra/sinistra</label>
+          <label class="check"><input type="checkbox" id="sInvertTilt"> Inverti su/giù</label>
+        </div>
+        <div id="discoverOut" class="out"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Anteprima video</legend>
+        <div class="grid2">
+          <label>Sorgente
+            <select id="sSource">
+              <option value="rtsp">Rete (RTSP)</option>
+              <option value="usb">USB (la camera è collegata a questo PC)</option>
+              <option value="none">Nessuna</option>
+            </select>
+          </label>
+          <label>Qualità anteprima
+            <select id="sWidth">
+              <option value="640">Leggera (640 px)</option>
+              <option value="960">Media (960 px)</option>
+              <option value="1280">Alta (1280 px)</option>
+            </select>
+          </label>
+        </div>
+        <label class="rtsp-only">Indirizzo flusso RTSP
+          <div class="inline">
+            <input id="sRtsp" placeholder="rtsp://192.168.1.50:554/1" autocomplete="off">
+            <button type="button" id="btnFindRtsp">Trova</button>
+            <button type="button" id="btnTestRtsp">Prova</button>
+          </div>
+        </label>
+        <label class="usb-only">Dispositivo USB
+          <select id="sUsb"></select>
+        </label>
+        <div class="inline">
+          <label class="check"><input type="checkbox" id="sRotate"> Ruota anteprima di 180°</label>
+          <label class="check"><input type="checkbox" id="sGrid"> Griglia dei terzi</label>
+        </div>
+        <div id="rtspOut" class="out"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Inquadrature di questo account</legend>
+        <div class="grid2">
+          <label>Dove salvarle
+            <select id="sPresetMode">
+              <option value="app">Nel programma (consigliato)</option>
+              <option value="slot">Nelle memorie della camera</option>
+            </select>
+          </label>
+          <label class="slot-only">Prima memoria di questo account (fino a 20 inquadrature)
+            <input id="sSlotBase" type="number" min="0" max="240">
+          </label>
+        </div>
+        <p class="note" id="presetModeNote"></p>
+        <div class="inline">
+          <button type="button" id="btnExport">Esporta inquadrature…</button>
+          <button type="button" id="btnImport">Importa inquadrature…</button>
+          <button type="button" id="btnDataFolder" class="ghost">Apri cartella dati</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Durante l'evento</legend>
+        <label class="check"><input type="checkbox" id="sGlobal"> Scorciatoie attive anche con altri programmi in primo piano: Ctrl+Alt+1…0 richiama, Ctrl+Alt+S ferma</label>
+      </fieldset>
+
+      <p class="muted small" id="aboutLine"></p>
+      <div class="actions rev">
+        <button id="btnSaveSettings" value="save" class="primary">Salva</button>
+        <button value="cancel" class="ghost">Annulla</button>
+      </div>
+    </form>
+  </dialog>
+
+
+
+  <!-- Scelta generica -->
+  <dialog id="dlgChoice" class="dlg">
+    <form method="dialog">
+      <h2 id="cTitle"></h2>
+      <p id="cText"></p>
+      <div class="actions" id="cActions"></div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
