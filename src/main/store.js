@@ -10,13 +10,16 @@ const DEFAULT_SETTINGS = {
   camera: {
     host: '',
     name: '', // nome letto dalla rete (ONVIF), solo per mostrarlo: vuoto = si usa il protocollo
-    protocol: 'visca-udp', // visca-udp | visca-tcp | visca-sony | onvif
+    protocol: 'visca-udp', // visca-udp | visca-tcp | visca-sony | onvif | usb (UVC, in prova)
     port: 1259,
     address: 1,
     user: 'admin',
     pass: '',
     invertPan: false,
     invertTilt: false,
+    // camera comandata via USB: dispositivo scelto e nome, per ritrovarlo se cambia presa
+    usbDeviceId: '',
+    usbLabel: '',
   },
   preview: {
     source: 'rtsp', // rtsp | usb | none

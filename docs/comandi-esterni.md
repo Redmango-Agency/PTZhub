@@ -50,6 +50,8 @@ Se durante un richiamo arriva STOP, Home, un comando manuale o un altro richiamo
 
 In `/api/state`, `activeIndex` conta da 1 come `/api/recall/<n>` (0 = nessuna inquadratura attiva).
 
+Con una camera comandata via USB (protocollo `usb`, in prova) tutti gli indirizzi funzionano allo stesso modo; in `/api/state` il campo `camera.host` vale `"USB"` e `camera.code` spiega un eventuale problema: `noptz` (la camera non accetta movimenti via USB), `zoomonly` (solo zoom), `busy` (occupata da un altro programma, per esempio OBS), `notfound` (scollegata).
+
 ## Sicurezza
 
 - Di base il collegamento accetta solo richieste dallo stesso PC (`127.0.0.1`).

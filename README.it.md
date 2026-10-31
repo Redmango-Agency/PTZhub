@@ -7,7 +7,7 @@
 
 <p align="center">
   <b>Controller gratuito per telecamere PTZ di rete</b><br>
-  VISCA over IP · ONVIF · pannello OBS · Stream Deck · tastiere macro — Windows e macOS
+  VISCA over IP · ONVIF · USB (in prova) · pannello OBS · Stream Deck · tastiere macro — Windows e macOS
 </p>
 
 <p align="center">
@@ -37,12 +37,13 @@ PTZ Hub ti dà anteprima dal vivo, joystick, zoom e fuoco, e **inquadrature** ch
 - **Pensato per la diretta**: finestra sempre in primo piano, stop di sicurezza al rilascio, alla perdita del fuoco e alla chiusura; STOP interrompe anche un richiamo in corso.
 - **Viste ridotte**: colonna **Compatta** sempre in primo piano, oppure linguetta **Laterale** agganciata al bordo sinistro o destro dello schermo che si apre al passaggio del mouse.
 - **Ricerca automatica**: trova le telecamere in rete (ONVIF WS-Discovery + scansione), rileva il protocollo e l'indirizzo del flusso video.
+- **Camere collegate solo via USB (in prova)**: se la camera accetta pan, tilt e zoom dal cavo USB (UVC), PTZ Hub la comanda anche senza rete. Lo verifica da solo e lo dice chiaramente: [dettagli](#camere-collegate-via-usb-in-prova).
 - **Centro operativo per OBS, Stream Deck e tastiere macro**: pannello da agganciare in OBS, indirizzo web per ogni funzione (Stream Deck, Bitfocus Companion), tasti globali per ogni funzione e **plugin per Stream Deck** con miniatura, nome e luce «in onda» sui tasti. Tutto passa dal programma, quindi tutti vedono la stessa inquadratura attiva. Dettagli in [docs/comandi-esterni.md](docs/comandi-esterni.md).
 - **Italiano e inglese**, scelti in automatico dalla lingua del sistema.
 
 ## Telecamere compatibili
 
-Telecamere PTZ comandate via rete con protocolli standard:
+Telecamere PTZ comandate via rete con protocolli standard, oppure dal cavo USB se la camera lo permette:
 
 | Protocollo | Porta tipica | Marche |
 |---|---|---|
@@ -50,10 +51,18 @@ Telecamere PTZ comandate via rete con protocolli standard:
 | VISCA over IP (TCP) | 5678 | come sopra |
 | Sony VISCA over IP | 52381 | Sony SRG/BRC e compatibili |
 | ONVIF PTZ | 80 / 8000 / 8080 | molte camere IP e PTZ |
+| USB (UVC) — **in prova** | cavo USB | webcam PTZ e camere che accettano pan, tilt e zoom via USB: funziona solo se la camera lo permette |
 
 Se la camera non sa comunicare la propria posizione, le inquadrature usano le memorie interne della camera (ogni account su numerazioni diverse).
 
-**Non ancora supportate**: telecamere comandabili solo via seriale RS-232/RS-485, Panasonic AW (protocollo HTTP proprietario), webcam PTZ solo USB (le camere USB funzionano per l'anteprima, non per muovere la testa).
+**Non ancora supportate**: telecamere comandabili solo via seriale RS-232/RS-485, Panasonic AW (protocollo HTTP proprietario). Le webcam e le camere PTZ collegate solo via USB sono **in prova**: si muovono se la camera accetta i comandi dal cavo USB, altrimenti funzionano solo per l'anteprima.
+
+### Camere collegate via USB (in prova)
+- Si sceglie al primo avvio («Camera collegata via USB?») o in Impostazioni › Telecamera › Protocollo «USB (UVC)». PTZ Hub apre la camera e dice subito se accetta pan, tilt, zoom e fuoco manuale via USB.
+- Molte camere PTZ dal cavo USB mandano solo il video: in quel caso compare «Questa camera non accetta movimenti via USB» e serve il cavo di rete con VISCA o ONVIF. Se accetta solo lo zoom, si usa lo zoom e lo si dice.
+- Le camere USB accettano solo posizioni assolute: joystick, frecce, pannello OBS e Stream Deck muovono la camera a piccoli passi (25 al secondo) in base alla velocità; STOP ferma subito. Le inquadrature salvano la posizione esatta nel programma (le camere USB non hanno memorie interne); Home porta pan e tilt al centro e lo zoom al minimo.
+- Su Windows una camera USB di solito la può usare un solo programma alla volta: se OBS la sta già usando, PTZ Hub lo segnala («La camera USB è occupata») e suggerisce di chiudere la sorgente in OBS o di comandare la camera via rete. Dentro PTZ Hub l'anteprima USB e i comandi condividono la stessa camera.
+- Se il cavo si stacca la Regia mostra «La camera USB non risponde» e si ricollega da sola appena la camera torna.
 
 Il supporto è in fase di collaudo: se la provi con il tuo modello, apri una [Issue](https://github.com/Redmango-Agency/PTZhub/issues/new/choose) («Telecamera provata»).
 
@@ -83,7 +92,7 @@ C'è anche una versione portatile (`…-portable-win-x64.zip`).
 All'avvio e poi una volta al giorno il programma chiede a GitHub qual è l'ultima versione pubblicata. Se ce n'è una più recente compare in alto l'avviso «Scarica», che apre la pagina della release: il programma non scarica e non installa nulla da solo, così durante un evento non cambia niente. Il controllo si spegne nelle Impostazioni.
 
 ## Primo utilizzo
-1. Al primo avvio il programma cerca in rete e propone la telecamera (oppure scrivi l'IP).
+1. Al primo avvio il programma cerca in rete e propone la telecamera (oppure scrivi l'IP). Camera collegata solo con il cavo USB: «Camera collegata via USB? (in prova)».
 2. Anteprima video: trova il flusso RTSP; scegli USB se la camera è collegata a questo computer.
 3. «+ Nuova inquadratura» per creare le tue inquadrature.
 
@@ -94,14 +103,14 @@ Serve Node.js 22.
 npm install
 npm run ffmpeg:win      # ffmpeg per il pacchetto Windows (non è nel repository); Mac: node scripts/fetch-ffmpeg.js darwin-arm64
 npm start
-npm test                # protocolli con telecamere simulate (VISCA, ONVIF), collegamento esterno, aggiornamenti
+npm test                # protocolli con telecamere simulate (VISCA, ONVIF, USB), collegamento esterno, aggiornamenti
 npm run dist:win        # installer e versione portatile in dist/
 ```
 
 GitHub Actions crea l'installer Windows, i dmg per Mac e il plugin per Stream Deck a ogni tag `v*` e li pubblica nelle Releases, con le note prese dal registro delle novità. Il plugin è in [streamdeck/](streamdeck/). Vedi [CHANGELOG.md](CHANGELOG.md) e [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```
-src/main/      driver delle telecamere (visca.js, onvif.js), ricerca, anteprima, dati per account,
+src/main/      driver delle telecamere (visca.js, onvif.js, uvc.js + uvc-link.js per la USB), ricerca, anteprima, dati per account,
                hub.js (centro operativo), control.js (collegamento per OBS/Stream Deck), updates.js
 src/renderer/  interfaccia              src/control/  pannello per OBS
 src/shared/    testi in italiano e inglese         test/  telecamere simulate e test

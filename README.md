@@ -7,7 +7,7 @@
 
 <p align="center">
   <b>Free PTZ camera controller for network cameras</b><br>
-  VISCA over IP · ONVIF · OBS dock · Stream Deck · macro keyboards — Windows &amp; macOS
+  VISCA over IP · ONVIF · USB (beta) · OBS dock · Stream Deck · macro keyboards — Windows &amp; macOS
 </p>
 
 <p align="center">
@@ -37,12 +37,13 @@ PTZ Hub gives you live preview, joystick, zoom and focus, and **presets** you re
 - **Made for live shows**: always-on-top window, safety stop on release, on focus loss and on quit; a recall in progress is interrupted by STOP.
 - **Reduced views**: **Compact** column always on top, or a **Side** tab docked to the left or right edge of the screen that opens on mouse hover.
 - **Automatic discovery**: finds cameras on the network (ONVIF WS-Discovery + scan), detects the protocol and the video stream address.
+- **USB-only cameras (beta)**: if the camera accepts pan, tilt and zoom over the USB cable (UVC), PTZ Hub controls it without a network. It checks this by itself and tells you clearly: [details](#usb-connected-cameras-beta).
 - **Hub for OBS, Stream Deck and macro keyboards**: a dock for OBS, a web address for every function (Stream Deck, Bitfocus Companion), global keys for every function, and a **Stream Deck plugin** with thumbnails, names and an "on air" light on the keys. Everything goes through the program, so all of them show the same active preset. Details in [docs/comandi-esterni.md](docs/comandi-esterni.md) (Italian).
 - **Italian and English**, chosen automatically from the system language.
 
 ## Supported cameras
 
-PTZ cameras controlled over the network with standard protocols:
+PTZ cameras controlled over the network with standard protocols, or over the USB cable if the camera allows it:
 
 | Protocol | Typical port | Brands |
 |---|---|---|
@@ -50,10 +51,18 @@ PTZ cameras controlled over the network with standard protocols:
 | VISCA over IP (TCP) | 5678 | as above |
 | Sony VISCA over IP | 52381 | Sony SRG/BRC and compatible |
 | ONVIF PTZ | 80 / 8000 / 8080 | many IP and PTZ cameras |
+| USB (UVC) — **beta** | USB cable | PTZ webcams and cameras that accept pan, tilt and zoom over USB: it only works if the camera allows it |
 
 If the camera can't report its position, presets use the camera's internal memories (each account on a different range).
 
-**Not supported yet**: cameras controlled only through RS-232/RS-485 serial, Panasonic AW (proprietary HTTP), USB-only PTZ webcams (USB cameras work for the preview, not for moving the head).
+**Not supported yet**: cameras controlled only through RS-232/RS-485 serial, Panasonic AW (proprietary HTTP). USB-only webcams and PTZ cameras are in **beta**: they move if the camera accepts commands over the USB cable, otherwise they work for the preview only.
+
+### USB-connected cameras (beta)
+- Choose it on first start ("Camera connected over USB?") or in Settings › Camera › Protocol "USB (UVC)". PTZ Hub opens the camera and tells you right away whether it accepts pan, tilt, zoom and manual focus over USB.
+- Many PTZ cameras send only video over the USB cable: then you get "This camera does not accept movements over USB" and you need the network cable with VISCA or ONVIF. If it only accepts zoom, zoom is used and you are told so.
+- USB cameras only accept absolute positions: joystick, arrow keys, OBS dock and Stream Deck move the camera in small steps (25 per second) according to the speed; STOP stops at once. Presets store the exact position in the app (USB cameras have no internal memories); Home brings pan and tilt to the centre and zoom to the widest.
+- On Windows a USB camera can usually be used by one program at a time: if OBS is already using it, PTZ Hub says so ("The USB camera is busy") and suggests closing the source in OBS or controlling the camera over the network. Inside PTZ Hub the USB preview and the controls share the same camera.
+- If the cable comes off, the Control room shows "The USB camera is not responding" and reconnects by itself as soon as the camera is back.
 
 Support is being field-tested: if you try it with your model, open an [issue](https://github.com/Redmango-Agency/PTZhub/issues/new/choose) ("Camera tested").
 
@@ -83,7 +92,7 @@ A portable version (`…-portable-win-x64.zip`) is also available.
 At startup and then once a day the program asks GitHub for the latest published version. If there's a newer one, a "Download" notice appears at the top and opens the release page: the program never downloads or installs anything by itself, so nothing changes during an event. You can turn the check off in Settings.
 
 ## Getting started
-1. On first start the program searches the network and suggests the camera (or type its IP).
+1. On first start the program searches the network and suggests the camera (or type its IP). Camera connected only with the USB cable: "Camera connected over USB? (beta)".
 2. Video preview: it finds the RTSP stream; choose USB if the camera is connected to this computer.
 3. "+ New preset" to create your shots.
 
@@ -94,14 +103,14 @@ Node.js 22.
 npm install
 npm run ffmpeg:win      # ffmpeg for the Windows package (not in the repository); Mac: node scripts/fetch-ffmpeg.js darwin-arm64
 npm start
-npm test                # protocols with simulated cameras (VISCA, ONVIF), external control, updates
+npm test                # protocols with simulated cameras (VISCA, ONVIF, USB), external control, updates
 npm run dist:win        # installer and portable version in dist/
 ```
 
 GitHub Actions builds the Windows installer, the Mac dmgs and the Stream Deck plugin on every `v*` tag and publishes them in Releases, with the notes taken from the changelog. The plugin lives in [streamdeck/](streamdeck/). See [CHANGELOG.md](CHANGELOG.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```
-src/main/      camera drivers (visca.js, onvif.js), discovery, preview, per-account storage,
+src/main/      camera drivers (visca.js, onvif.js, uvc.js + uvc-link.js for USB), discovery, preview, per-account storage,
                hub.js (command hub), control.js (local API for OBS/Stream Deck), updates.js
 src/renderer/  user interface          src/control/  OBS dock
 src/shared/    Italian and English texts          test/  simulated cameras and tests

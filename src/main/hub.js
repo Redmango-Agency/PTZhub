@@ -50,8 +50,11 @@ class Hub extends EventEmitter {
   state() {
     const cam = this.store.settings.camera || {};
     const list = this.presets();
+    // camera USB: al posto dell'indirizzo IP si mostra «USB» (pannello OBS, Stream Deck)
+    const usb = cam.protocol === 'usb';
+    const host = usb ? (cam.usbDeviceId || cam.usbLabel ? 'USB' : '') : (cam.host || '');
     return {
-      camera: { ...this.getCamStatus(), host: cam.host || '', name: cam.name || '', protocol: cam.protocol || '' },
+      camera: { ...this.getCamStatus(), host, name: cam.name || '', protocol: cam.protocol || '' },
       activeId: this.activeId,
       targetId: this.targetId, // richiamo in corso (la camera sta andando lì), null se nessuno
       activeIndex: list.findIndex((p) => p.id === this.activeId) + 1, // da 1, come /api/recall/<n>; 0 = nessuna
@@ -116,8 +119,12 @@ class Hub extends EventEmitter {
       else if (p.slot != null) await cam.recallSlot(p.slot, cancelled);
       else throw new Error(t('presets.noPosition'));
     } catch (e) {
-      if (cancelled() || (e && e.code === 'CANCELLED')) return null;
-      if (!cancelled()) { this.targetId = null; this.changed(); }
+      if (cancelled()) return null;
+      // richiamo fermato dal driver stesso (per esempio un comando manuale arrivato direttamente
+      // alla camera): non è un errore, ma l'inquadratura non è più «in arrivo»
+      this.targetId = null;
+      this.changed();
+      if (e && e.code === 'CANCELLED') return null;
       throw e;
     }
     if (cancelled()) return null;

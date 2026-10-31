@@ -5,7 +5,7 @@
 
 const { t } = window.I18N;
 const {
-  esc, HOTKEYS, presetNum, thumbHtml, cameraName, camLevel,
+  esc, HOTKEYS, presetNum, thumbHtml, cameraName, camLevel, camConfigured, camAddress,
 } = window.UI;
 const $ = (s) => document.querySelector(s);
 
@@ -24,12 +24,13 @@ function render() {
   document.body.classList.toggle('side-left', view.side === 'left');
   document.body.classList.toggle('side-right', view.side !== 'left');
   const c = settings.camera;
-  const lvl = camLevel(camState, c.host);
-  const name = c.host ? (c.name || c.host) : t('top.notConfigured');
+  const on = camConfigured(c);
+  const lvl = camLevel(camState, on);
+  const name = on ? (c.name || camAddress(c)) : t('top.notConfigured');
   $('#tabDot').className = `dot ${lvl}`;
   $('#pDot').className = `dot ${lvl}`;
   $('#pCam').textContent = name;
-  $('#pCam').title = c.host ? `${cameraName(c)} · ${c.host}` : '';
+  $('#pCam').title = on ? `${cameraName(c)} · ${camAddress(c)}` : '';
   const i = presets.findIndex((p) => p.id === activeId);
   $('#tabNum').textContent = i >= 0 ? presetNum(i) : '–';
   $('#tabNum').classList.toggle('on', i >= 0);
