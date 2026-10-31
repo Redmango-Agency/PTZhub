@@ -105,7 +105,7 @@
         }
       ],
       "category": "public.app-category.video",
-      "icon": "build/icon.png",
+      "icon": "build/icon-mac.png",
       "identity": null,
       "darkModeSupport": true,
       "minimumSystemVersion": "11.0",

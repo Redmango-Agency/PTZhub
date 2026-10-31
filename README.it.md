@@ -1,4 +1,9 @@
-# PTZ Hub
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-dark.png">
+    <img src="docs/img/logo-light.png" alt="PTZ Hub" width="360">
+  </picture>
+</p>
 
 Controller gratuito per telecamere PTZ di rete, con integrazione OBS, Stream Deck e tastiere macro. Windows e macOS.
 
