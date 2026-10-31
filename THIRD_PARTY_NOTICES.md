@@ -19,3 +19,9 @@ It is licensed under the **GNU General Public License v3** (full text in
 The application runs on **Electron** (MIT License) which includes **Chromium**
 and other components. Their licenses are included in the installed app as
 `LICENSE.electron.txt` and `LICENSES.chromium.html`.
+
+## Stream Deck plugin
+
+The Stream Deck plugin (`PTZ-Hub.streamDeckPlugin`) bundles the **Elgato Stream Deck SDK**
+(`@elgato/streamdeck`, MIT License) and **sdpi-components** for the settings panel
+(MIT License, © Corsair Memory Inc.; copy in `streamdeck/vendor/sdpi-components/`).

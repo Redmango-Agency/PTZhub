@@ -1,8 +1,9 @@
 node_modules/
 dist/
 dist-test/
-vendor/
+/vendor/
 *.log
 rileva-camera-risultato.json
 .DS_Store
 Thumbs.db
+.claude/
