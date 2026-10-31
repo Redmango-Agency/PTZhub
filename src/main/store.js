@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const DEFAULT_SETTINGS = {
   camera: {
     host: '',
+    name: '', // nome letto dalla rete (ONVIF), solo per mostrarlo: vuoto = si usa il protocollo
     protocol: 'visca-udp', // visca-udp | visca-tcp | visca-sony | onvif
     port: 1259,
     address: 1,
@@ -43,9 +44,15 @@ const DEFAULT_SETTINGS = {
   shortcuts: {}, // funzione -> combinazione globale, es. { "stop": "F13", "preset:<id>": "Control+Alt+Shift+A" }
   alwaysOnTop: false,
   globalHotkeys: false,
-  compact: false,
-  bounds: null,
+  // vista della finestra: completa, compatta (colonna sul bordo) o laterale (linguetta sul bordo)
+  view: {
+    mode: 'full', // full | compact | side
+    side: 'right', // left | right: bordo dello schermo per le viste ridotte
+  },
+  bounds: null, // posizione e dimensioni della vista completa
 };
+
+const VIEW_MODES = ['full', 'compact', 'side'];
 
 const DEFAULT_PORTS = { 'visca-udp': 1259, 'visca-tcp': 5678, 'visca-sony': 52381, onvif: 80 };
 
@@ -101,11 +108,22 @@ class Store {
       s = (sharedDefaultsFile && readJson(sharedDefaultsFile)) || {};
       delete s.bounds;
       delete s.compact;
+      delete s.view;
       delete s.shortcuts; // i tasti fanno riferimento alle inquadrature di un altro account
       if (s.api) delete s.api.token;
       s.slotBase = slotBaseFor(username);
     }
+    // versioni fino alla 1.3: "compact" (vista compatta orizzontale) diventa la nuova vista compatta
+    const legacyCompact = s.compact === true && !(s.view && s.view.mode);
+    delete s.compact;
     this.settings = merge(DEFAULT_SETTINGS, s);
+    // oggetto nuovo: merge() può restituire lo stesso oggetto dei valori predefiniti
+    const v = this.settings.view || {};
+    const mode = legacyCompact ? 'compact' : v.mode;
+    this.settings.view = {
+      mode: VIEW_MODES.includes(mode) ? mode : 'full',
+      side: v.side === 'left' ? 'left' : 'right',
+    };
     if (!this.settings.api.token) {
       // chiave dell'account per gli indirizzi esterni: impedisce a pagine web estranee di comandare la camera
       this.settings.api.token = Store.newToken();
@@ -138,4 +156,6 @@ class Store {
   }
 }
 
-module.exports = { Store, DEFAULT_SETTINGS, DEFAULT_PORTS, merge, slotBaseFor };
+module.exports = {
+  Store, DEFAULT_SETTINGS, DEFAULT_PORTS, VIEW_MODES, merge, slotBaseFor,
+};

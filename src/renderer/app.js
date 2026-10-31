@@ -2,26 +2,34 @@
 /* global ptz */
 
 const { t } = window.I18N;
+const {
+  esc, HOTKEYS, presetNum, PROTOCOL_LABEL, ICONS, thumbHtml, cameraName, camLevel,
+} = window.UI;
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-const PROTOCOL_LABEL = {
-  'visca-udp': 'VISCA UDP', 'visca-tcp': 'VISCA TCP', 'visca-sony': 'Sony VISCA', onvif: 'ONVIF',
-};
 const DEFAULT_PORTS = { 'visca-udp': 1259, 'visca-tcp': 5678, 'visca-sony': 52381, onvif: 80 };
-const HOTKEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+const PROTOCOL_DESC = {
+  'visca-udp': 'VISCA over IP, UDP', 'visca-tcp': 'VISCA over IP, TCP', 'visca-sony': 'Sony VISCA over IP', onvif: 'ONVIF',
+};
 
 let settings = null;
 let presets = [];
 let info = {};
 let activeId = null;
+let recallingId = null; // inquadratura verso cui la camera sta andando (richiesta da qui)
 let camState = { state: 'disconnected', detail: '' };
+let view = { mode: 'full', side: 'right', alwaysOnTop: false };
+
+// vista compatta già all'apertura (?view=compact): niente Regia schiacciata a 260 px nel primo istante
+if (new URLSearchParams(window.location.search).get('view') === 'compact') document.body.classList.add('compact');
 
 // ---------------------------------------------------------------------------
 // Utilità
 
 const lastToastAt = new Map();
+const TOAST_ICON = { ok: 'check', err: 'fail', warn: 'warnDot' };
 
 function toast(msg, kind = 'info', ms = 3800) {
   // lo stesso messaggio non si ripete prima di 10 secondi (es. errori di rete ricorrenti)
@@ -30,7 +38,8 @@ function toast(msg, kind = 'info', ms = 3800) {
   lastToastAt.set(msg, now);
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
-  el.textContent = msg;
+  el.innerHTML = `${TOAST_ICON[kind] ? `<span class="ti">${ICONS[TOAST_ICON[kind]]}</span>` : ''}<span class="tt"></span>`;
+  el.querySelector('.tt').textContent = msg;
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
 }
@@ -39,61 +48,143 @@ function errMsg(e) {
   return String(e && e.message ? e.message : e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 }
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
-
-function applyI18n(root = document) {
-  root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
-  root.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });
-  root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
-}
-
 function uid() {
   return (crypto.randomUUID && crypto.randomUUID()) || `p${Date.now()}${Math.random().toString(16).slice(2)}`;
 }
 
+const pageOpen = () => document.body.classList.contains('settings-open') || document.body.classList.contains('wizard-open');
 function anyDialogOpen() {
   return $$('dialog').some((d) => d.open);
 }
 
-function choice(title, text, buttons) {
-  return new Promise((resolve) => {
-    const dlg = $('#dlgChoice');
-    $('#cTitle').textContent = title;
-    $('#cText').textContent = text;
-    const box = $('#cActions');
-    box.innerHTML = '';
-    for (const b of buttons) {
-      const btn = document.createElement('button');
-      btn.value = b.value;
-      btn.textContent = b.label;
-      btn.className = b.className || '';
-      box.appendChild(btn);
-    }
-    dlg.returnValue = '';
-    dlg.onclose = () => resolve(dlg.returnValue || null);
-    dlg.showModal();
+// controlli segmentati (pulsanti con data-v)
+function segSet(el, v) {
+  el.dataset.value = v;
+  el.querySelectorAll('button[data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === String(v)));
+}
+const segGet = (el) => el.dataset.value;
+function segBind(el, onChange) {
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-v]');
+    if (!b || b.disabled) return;
+    segSet(el, b.dataset.v);
+    if (onChange) onChange(b.dataset.v);
   });
 }
 
-// ---------------------------------------------------------------------------
-// Stato camera
+// Conferma con icona (eliminare, nuova chiave, importare…): true se si conferma
+function confirmDlg({
+  icon = 'question', title, text, ok, danger = false,
+}) {
+  return new Promise((resolve) => {
+    const dlg = $('#dlgConfirm');
+    const ico = $('#cfIcon');
+    ico.className = `cf-icon ${icon}`;
+    ico.innerHTML = ICONS[{ delete: 'trash', key: 'key', import: 'importIcon' }[icon] || 'question'];
+    $('#cfTitle').textContent = title;
+    $('#cfText').textContent = text;
+    const okBtn = $('#cfOk');
+    okBtn.textContent = ok;
+    okBtn.classList.toggle('btn-danger', danger);
+    dlg.returnValue = '';
+    dlg.onclose = () => resolve(dlg.returnValue === 'ok');
+    dlg.showModal();
+    $('#cfCancel').focus();
+  });
+}
+$('#cfOk').addEventListener('click', () => $('#dlgConfirm').close('ok'));
+$('#cfCancel').addEventListener('click', () => $('#dlgConfirm').close('cancel'));
 
-function renderCamStatus() {
-  const el = $('#camStatus');
-  el.className = `cam-status ${camState.state}`;
+// ---------------------------------------------------------------------------
+// Barra del titolo
+
+$$('.tb-controls [data-win]').forEach((b) => b.addEventListener('click', () => ptz.winControl(b.dataset.win)));
+function renderMaximized(on) {
+  const b = $('#tbMax');
+  b.innerHTML = on ? ICONS.restore : ICONS.maximize;
+  b.title = on ? t('win.restore') : t('win.maximize');
+  b.setAttribute('aria-label', b.title);
+}
+function setWindowTitle(text) {
+  $('#tbTitle').textContent = text;
+  document.title = text;
+}
+
+// ---------------------------------------------------------------------------
+// Stato camera e avviso «non risponde»
+
+let camFirstAttempt = true; // primo tentativo di collegamento: niente avviso finché non fallisce
+let offlineTimer = null;
+
+function camStateText() {
   const c = settings.camera;
-  $('#camLabel').textContent = c.host ? `${c.host} · ${PROTOCOL_LABEL[c.protocol] || c.protocol}` : t('top.notConfigured');
-  const txt = {
+  if (!c.host) return t('cam.openSettings');
+  return {
     connected: t('cam.connected'),
     connecting: t('cam.connecting'),
-    error: camState.detail || t('cam.error'),
-    disconnected: c.host ? t('cam.disconnected') : t('cam.openSettings'),
+    error: t('cam.noReply'),
+    disconnected: t('cam.noReply'),
   }[camState.state] || '';
-  $('#camDetail').textContent = txt;
-  el.title = camState.detail || '';
 }
+
+function renderCamStatus() {
+  const c = settings.camera;
+  const lvl = camLevel(camState, c.host);
+  const pill = $('#camStatus');
+  pill.className = `status-pill ${lvl}`;
+  pill.querySelector('.dot').className = `dot ${lvl}`;
+  $('#camLabel').textContent = c.host ? `${cameraName(c)} · ${c.host}` : t('top.notConfigured');
+  const stateTxt = camStateText();
+  $('#camDetail').textContent = document.body.classList.contains('editing') && camState.state === 'connected' && c.name
+    ? `${PROTOCOL_DESC[c.protocol] || ''} · ${stateTxt}` : stateTxt;
+  pill.title = camState.detail || '';
+  // vista compatta
+  $('#cDot').className = `dot ${lvl}`;
+  $('#cName').textContent = c.host ? (c.name || c.host) : t('top.notConfigured');
+  $('#cName').title = c.host ? `${cameraName(c)} · ${c.host} — ${stateTxt}` : '';
+  // impostazioni
+  const badge = $('#sCamBadge');
+  badge.className = `state-badge ${{ ok: 'ok', wait: 'wait', bad: 'bad', off: 'off' }[lvl]}`;
+  badge.textContent = c.host ? {
+    ok: t('cam.badgeOk'), wait: t('cam.badgeWait'), bad: t('cam.badgeBad'), off: '',
+  }[lvl] : t('cam.badgeOff');
+  updateOffline();
+}
+
+function showOffline(on) {
+  $('#offlineBanner').hidden = !on;
+  document.body.classList.toggle('offline', !!on);
+  renderPreviewState();
+}
+
+function updateOffline() {
+  const host = settings.camera.host;
+  const st = camState.state;
+  if (!host || st === 'connected') {
+    if (st === 'connected') camFirstAttempt = false;
+    clearTimeout(offlineTimer);
+    offlineTimer = null;
+    if (!$('#offlineBanner').hidden) showOffline(false);
+    return;
+  }
+  if (st === 'error' || st === 'disconnected') camFirstAttempt = false;
+  if (st === 'connecting' && camFirstAttempt) return;
+  if (!offlineTimer && $('#offlineBanner').hidden) {
+    offlineTimer = setTimeout(() => {
+      offlineTimer = null;
+      if (camState.state !== 'connected' && settings.camera.host) showOffline(true);
+    }, 3000);
+  }
+}
+
+$('#btnRetry').addEventListener('click', async () => {
+  const b = $('#btnRetry');
+  b.disabled = true;
+  b.textContent = t('off.retrying');
+  try { await ptz.reconnect(); } catch (_) { /* lo stato arriva comunque */ }
+  setTimeout(() => { b.disabled = false; b.textContent = t('off.retry'); }, 2500);
+});
+$('#btnCamSettings').addEventListener('click', () => openSettings('camera'));
 
 // ---------------------------------------------------------------------------
 // Movimento: joystick, tastiera, pulsanti
@@ -152,7 +243,7 @@ function shape(v) {
 
 function joyUpdate(e) {
   const r = joy.getBoundingClientRect();
-  const R = r.width / 2 - 29; // raggio utile: bordo meno metà della manopola
+  const R = r.width / 2 - knob.offsetWidth / 2 + 1; // raggio utile: bordo meno metà della manopola
   let dx = (e.clientX - (r.left + r.width / 2)) / R;
   let dy = (e.clientY - (r.top + r.height / 2)) / R;
   const m = Math.hypot(dx, dy);
@@ -183,9 +274,10 @@ let zoomActive = false;
 let focusActive = false;
 
 function setAfUi(on) {
-  $('#btnAF').classList.toggle('on', on);
-  $('#btnAF').textContent = on ? t('ctl.af') : t('ctl.mf');
+  segSet($('#focusSeg'), on ? '1' : '0');
 }
+$$('#focusSeg button').forEach((b) => { b.dataset.v = b.dataset.af; });
+segBind($('#focusSeg'), (v) => ptz.cmd('focusAuto', v === '1'));
 
 for (const b of $$('.hold')) {
   const start = (e) => {
@@ -214,15 +306,16 @@ for (const b of $$('.hold')) {
   b.addEventListener('lostpointercapture', end);
 }
 
-$('#btnAF').addEventListener('click', () => {
-  const on = !$('#btnAF').classList.contains('on');
-  setAfUi(on);
-  ptz.cmd('focusAuto', on);
-});
+function goHome() {
+  activeId = null;
+  renderPresets();
+  ptz.cmd('home');
+}
 $('#btnOnePush').addEventListener('click', () => ptz.cmd('onePush'));
-$('#btnHome').addEventListener('click', () => { activeId = null; renderPresets(); ptz.cmd('home'); });
+$('#btnHome').addEventListener('click', goHome);
 $('#btnStop').addEventListener('click', () => stopAll());
-$('#btnStopCompact').addEventListener('click', () => stopAll());
+$('#cHome').addEventListener('click', goHome);
+$('#cStop').addEventListener('click', () => stopAll());
 
 // Tastiera. Ogni tasto premuto viene ricordato per codice fisico (e.code): così il
 // rilascio ferma sempre il movimento, anche se nel frattempo è cambiato Maiusc.
@@ -255,7 +348,7 @@ const CODE_ACTIONS = {
 const KEY_ACTIONS = { '+': 'zoomIn', '-': 'zoomOut' }; // tasti +/- della tastiera principale
 
 window.addEventListener('keydown', (e) => {
-  if (anyDialogOpen() || isTyping()) return;
+  if (anyDialogOpen() || pageOpen() || isTyping()) return;
   if (e.key === 'Escape' || e.code === 'Space') {
     e.preventDefault();
     stopAll();
@@ -299,97 +392,142 @@ function bindSlider(id, key) {
   const out = $(`#${id}Val`);
   input.value = settings[key];
   out.textContent = `${Math.round(settings[key] * 100)}%`;
-  let t = null;
+  let tm = null;
   input.addEventListener('input', () => {
     settings[key] = Number(input.value);
     out.textContent = `${Math.round(settings[key] * 100)}%`;
-    clearTimeout(t);
-    t = setTimeout(() => ptz.saveSettings({ [key]: settings[key] }), 400);
+    clearTimeout(tm);
+    tm = setTimeout(() => ptz.saveSettings({ [key]: settings[key] }), 400);
   });
 }
+
+// Tasti rapidi
+$('#btnKeys').addEventListener('click', () => {
+  $('#dlgKeys').showModal();
+  if (document.activeElement) document.activeElement.blur();
+});
+$('#keysDone').addEventListener('click', () => $('#dlgKeys').close());
+$('#keysToSettings').addEventListener('click', () => {
+  $('#dlgKeys').close();
+  openSettings('external');
+});
 
 // ---------------------------------------------------------------------------
 // Anteprima
 
 const canvas = $('#video');
 const ctx = canvas.getContext('2d');
+const wzCanvas = $('#wzCanvas');
+const wzCtx = wzCanvas.getContext('2d');
 const usbVideo = $('#usbVideo');
 let lastFrame = null; // ImageBitmap o elemento video
 let usbStream = null;
 let usbRaf = null;
 let previewState = { state: 'off', detail: '' };
 
-function fitCanvas() {
-  const r = canvas.getBoundingClientRect();
+function fitCanvas(cv) {
+  const r = cv.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const w = Math.max(1, Math.round(r.width * dpr));
   const h = Math.max(1, Math.round(r.height * dpr));
-  if (canvas.width !== w || canvas.height !== h) {
-    canvas.width = w;
-    canvas.height = h;
+  if (cv.width !== w || cv.height !== h) {
+    cv.width = w;
+    cv.height = h;
     if (lastFrame) draw(lastFrame);
   }
 }
-new ResizeObserver(fitCanvas).observe($('#videoWrap'));
+new ResizeObserver(() => fitCanvas(canvas)).observe($('#videoWrap'));
+new ResizeObserver(() => fitCanvas(wzCanvas)).observe($('#wzPreview'));
 
 function sourceSize(src) {
   return src instanceof HTMLVideoElement ? [src.videoWidth, src.videoHeight] : [src.width, src.height];
 }
 
-function draw(src) {
+function drawOn(cv, g, src, withGrid) {
   const [sw, sh] = sourceSize(src);
-  if (!sw || !sh) return;
-  const W = canvas.width;
-  const H = canvas.height;
+  if (!sw || !sh || !cv.width || !cv.height) return;
+  const W = cv.width;
+  const H = cv.height;
   const s = Math.min(W / sw, H / sh);
   const dw = sw * s;
   const dh = sh * s;
   const dx = (W - dw) / 2;
   const dy = (H - dh) / 2;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#050608';
-  ctx.fillRect(0, 0, W, H);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = '#000000';
+  g.fillRect(0, 0, W, H);
   if (settings.preview.rotate180) {
-    ctx.translate(W, H);
-    ctx.rotate(Math.PI);
+    g.translate(W, H);
+    g.rotate(Math.PI);
   }
-  ctx.drawImage(src, dx, dy, dw, dh);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (settings.preview.grid) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.lineWidth = Math.max(1, (window.devicePixelRatio || 1));
-    ctx.beginPath();
+  g.drawImage(src, dx, dy, dw, dh);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (withGrid) {
+    const dpr = window.devicePixelRatio || 1;
+    g.strokeStyle = 'rgba(255,255,255,0.45)';
+    g.lineWidth = Math.max(1, dpr);
+    g.beginPath();
     for (let i = 1; i < 3; i++) {
-      ctx.moveTo(dx + (dw * i) / 3, dy); ctx.lineTo(dx + (dw * i) / 3, dy + dh);
-      ctx.moveTo(dx, dy + (dh * i) / 3); ctx.lineTo(dx + dw, dy + (dh * i) / 3);
+      g.moveTo(dx + (dw * i) / 3, dy); g.lineTo(dx + (dw * i) / 3, dy + dh);
+      g.moveTo(dx, dy + (dh * i) / 3); g.lineTo(dx + dw, dy + (dh * i) / 3);
     }
-    ctx.stroke();
-    ctx.beginPath();
-    const cx = dx + dw / 2;
-    const cy = dy + dh / 2;
-    const k = 10 * (window.devicePixelRatio || 1);
-    ctx.moveTo(cx - k, cy); ctx.lineTo(cx + k, cy);
-    ctx.moveTo(cx, cy - k); ctx.lineTo(cx, cy + k);
-    ctx.stroke();
+    g.stroke();
+    if (!document.body.classList.contains('editing')) {
+      // nell'editor il mirino centrale è già disegnato sopra l'anteprima
+      g.beginPath();
+      const cx = dx + dw / 2;
+      const cy = dy + dh / 2;
+      const k = 10 * dpr;
+      g.moveTo(cx - k, cy); g.lineTo(cx + k, cy);
+      g.moveTo(cx, cy - k); g.lineTo(cx, cy + k);
+      g.stroke();
+    }
   }
 }
 
-function setPreviewMsg(text) {
-  const el = $('#previewMsg');
-  el.textContent = text || '';
-  el.classList.toggle('hidden', !text);
+function draw(src) {
+  drawOn(canvas, ctx, src, settings.preview.grid);
+  if (wz.step === 2 && document.body.classList.contains('wizard-open')) drawOn(wzCanvas, wzCtx, src, false);
 }
+
+function setPreviewMsg(title, sub = '', cls = '') {
+  const el = $('#previewMsg');
+  el.classList.toggle('hidden', !title);
+  el.classList.toggle('connecting', cls === 'connecting');
+  $('#previewTitle').textContent = title || '';
+  $('#previewSub').textContent = sub || '';
+}
+
+const camOffline = () => !!settings.camera.host && !$('#offlineBanner').hidden;
 
 function renderPreviewState() {
+  if (!settings) return;
   const src = settings.preview.source;
   const live = previewState.state === 'live';
   $('#liveBadge').classList.toggle('on', live);
-  if (src === 'none') { setPreviewMsg(t('preview.off')); return; }
-  if (live) { setPreviewMsg(''); return; }
-  if (src === 'rtsp' && !settings.preview.rtspUrl) { setPreviewMsg(t('preview.needUrl')); return; }
-  if (previewState.state === 'connecting') setPreviewMsg(t('preview.connecting'));
-  else if (previewState.state === 'error') setPreviewMsg(t('preview.error', { detail: previewState.detail }));
-  else setPreviewMsg('');
+  $('#videoWrap').classList.toggle('live', live);
+  canvas.classList.toggle('off', !live);
+  if (src === 'none') setPreviewMsg(t('preview.off'), t('preview.offSub'));
+  else if (live) setPreviewMsg('');
+  else if (src === 'rtsp' && !settings.preview.rtspUrl) setPreviewMsg(t('preview.notConfigured'), t('preview.needUrl'));
+  else if (camOffline()) setPreviewMsg(t('preview.noSignal'), t('preview.noSignalSub'));
+  else if (previewState.state === 'connecting') setPreviewMsg(t('preview.connecting'), '', 'connecting');
+  else if (previewState.state === 'error') setPreviewMsg(t('preview.noSignal'), t('preview.error', { detail: previewState.detail }));
+  else setPreviewMsg(t('preview.noSignal'));
+  renderVideoBadge();
+  renderWzVideo();
+}
+
+function renderVideoBadge() {
+  const b = $('#sVideoBadge');
+  const src = settings.preview.source;
+  let cls = 'off';
+  let txt = t('pv.badgeOff');
+  if (src !== 'none') {
+    if (previewState.state === 'live') { cls = 'ok'; txt = t('pv.badgeLive'); } else if (previewState.state === 'connecting') { cls = 'wait'; txt = t('pv.badgeWait'); } else if (previewState.state === 'error') { cls = 'bad'; txt = t('pv.badgeBad'); } else { txt = t('pv.badgeIdle'); }
+  }
+  b.className = `state-badge ${cls}`;
+  b.textContent = txt;
 }
 
 ptz.onFrame(async (buf) => {
@@ -435,18 +573,19 @@ async function startUsb() {
 
 function stopUsb() {
   cancelAnimationFrame(usbRaf);
-  if (usbStream) usbStream.getTracks().forEach((t) => t.stop());
+  if (usbStream) usbStream.getTracks().forEach((tr) => tr.stop());
   usbStream = null;
   usbVideo.srcObject = null;
 }
 
 function applyPreviewSource() {
-  if (settings.preview.source === 'usb') {
-    startUsb();
+  // nelle viste ridotte l'anteprima non si vede: anche la camera USB si ferma
+  if (settings.preview.source === 'usb' && view.mode === 'full') {
+    if (!usbStream) startUsb();
   } else {
     stopUsb();
     if (lastFrame instanceof HTMLVideoElement) lastFrame = null;
-    if (settings.preview.source === 'none') previewState = { state: 'off', detail: '' };
+    if (settings.preview.source !== 'rtsp') previewState = { state: 'off', detail: '' };
     renderPreviewState();
   }
 }
@@ -474,23 +613,37 @@ function persist() {
   return ptz.savePresets(presets).catch((e) => toast(t('presets.saveFailed', { error: errMsg(e) }), 'err'));
 }
 
+function renderActiveBadge() {
+  const i = presets.findIndex((p) => p.id === activeId);
+  const b = $('#activeBadge');
+  b.classList.toggle('on', i >= 0);
+  b.textContent = i >= 0 ? `${presetNum(i)} · ${presets[i].name}` : '';
+}
+
 function renderPresets() {
   const grid = $('#presetGrid');
   grid.innerHTML = '';
+  renderActiveBadge();
+  renderCompactList();
   if (!presets.length) {
-    grid.innerHTML = `<div class="empty-presets">${esc(t('presets.empty'))}</div>`;
+    grid.innerHTML = `<div class="empty-state">
+      <span class="thumb placeholder es-icon"><span class="ph-glyph">${ICONS.camera}</span><span class="num-big">1</span></span>
+      <div class="es-text"><b>${esc(t('presets.emptyTitle'))}</b><span>${esc(t('presets.emptyText'))}</span></div>
+      <div class="es-action"><button class="btn-primary" id="btnFirstPreset">${esc(t('presets.emptyAction'))}</button>
+      <small>${esc(t('presets.emptyHint'))}</small></div></div>`;
+    $('#btnFirstPreset').addEventListener('click', () => openEditor());
     return;
   }
   presets.forEach((p, i) => {
     const b = document.createElement('button');
-    b.className = `preset${p.id === activeId ? ' active' : ''}`;
+    b.className = `preset${p.id === activeId ? ' active' : ''}${p.id === recallingId ? ' busy' : ''}`;
     b.dataset.id = p.id;
     b.title = i < 10 ? t('presets.withKey', { text: p.name, key: HOTKEYS[i] }) : p.name;
-    const thumb = p.thumb ? `style="background-image:url('${p.thumb}')"` : '';
-    b.innerHTML = `<div class="thumb" ${thumb}>${p.thumb ? '' : '◎'}</div>`
-      + `<div class="meta"><span class="num">${i < 10 ? HOTKEYS[i] : '·'}</span><span class="name">${esc(p.name)}</span>`
-      + `<span class="edit" title="${esc(t('presets.edit'))}">✎</span></div>`
-      + (p.slot != null ? `<span class="slot-tag">${esc(t('presets.slot', { n: p.slot }))}</span>` : '');
+    b.innerHTML = `<span class="tw">${thumbHtml(p, i)}`
+      + `<span class="onair">${esc(t('presets.onAir'))}</span><span class="arriving">${esc(t('presets.arriving'))}</span>`
+      + `${p.slot != null ? `<span class="slot-tag">${esc(t('presets.slot', { n: p.slot }))}</span>` : ''}</span>`
+      + `<span class="meta"><span class="name">${esc(p.name)}</span>`
+      + `<span class="edit" role="button" title="${esc(t('presets.edit'))}" aria-label="${esc(t('presets.edit'))}">${ICONS.pencil}</span></span>`;
     b.addEventListener('click', (e) => {
       if (e.target.closest('.edit')) { openEditor(p.id); return; }
       recall(p);
@@ -500,18 +653,38 @@ function renderPresets() {
   });
 }
 
+function renderCompactList() {
+  const box = $('#compactList');
+  if (!presets.length) {
+    box.innerHTML = `<div class="p-empty">${esc(t('presets.emptyShort'))}</div>`;
+    return;
+  }
+  box.innerHTML = presets.map((p, i) => `<button class="p-row${p.id === activeId ? ' active' : ''}${p.id === recallingId ? ' busy' : ''}" data-id="${esc(p.id)}" title="${esc(p.name)}">`
+    + `${thumbHtml(p, i, { big: false })}<span class="p-name">${esc(p.name)}</span></button>`).join('');
+}
+$('#compactList').addEventListener('click', (e) => {
+  const row = e.target.closest('.p-row');
+  if (!row) return;
+  const p = presets.find((x) => x.id === row.dataset.id);
+  if (p) recall(p);
+});
+
 // il richiamo passa dal centro operativo del programma, come quelli da OBS e Stream Deck
 async function recall(p, opts) {
   if (!p) return;
   stopManualOnly();
+  recallingId = p.id;
+  if (!editor) renderPresets();
   try {
     const r = await ptz.recallPreset(p.id, settings.recallSpeed, opts);
     if (!r || !r.id) return; // superato da STOP o da un altro comando
     activeId = p.id;
     if (p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
-    renderPresets();
   } catch (e) {
     toast(t('presets.recallError', { name: p.name, error: errMsg(e) }), 'err');
+  } finally {
+    if (recallingId === p.id) recallingId = null;
+    if (!editor) renderPresets();
   }
 }
 
@@ -560,11 +733,11 @@ function explainCaptureError(e) {
 }
 
 // ---------------------------------------------------------------------------
-// Editor delle inquadrature: la schermata diventa "modifica", con anteprima grande e
-// comandi della camera. Si posiziona la testa e con «Salva» si memorizzano le coordinate
-// (pan, tilt, zoom, fuoco) lette dalla camera, più una miniatura.
+// Editor delle inquadrature: la Regia diventa "modifica", con l'anteprima incorniciata di blu.
+// Si posiziona la testa e con «Salva» si memorizzano le coordinate (pan, tilt, zoom, fuoco)
+// lette dalla camera, più una miniatura.
 
-let editor = null; // { mode: 'new' | 'edit', id, wasCompact }
+let editor = null; // { mode: 'new' | 'edit', id }
 
 function editorPreset() {
   return editor && editor.id ? presets.find((x) => x.id === editor.id) : null;
@@ -580,6 +753,8 @@ function renderEditor() {
   $('#edRight').disabled = idx < 0 || idx >= presets.length - 1;
   const keyIdx = p ? idx : presets.length;
   $('#edKey').textContent = keyIdx >= 0 && keyIdx < 10 ? t('presets.key', { key: HOTKEYS[keyIdx] }) : '';
+  $('#edHint').textContent = p ? t('ed.hintEdit') : t('ed.hintNew');
+  $('#editNote').textContent = settings.presetMode === 'slot' ? t('ed.noteSlot') : t('ed.noteApp');
 }
 
 async function openEditor(id = null) {
@@ -587,14 +762,13 @@ async function openEditor(id = null) {
   const p = id ? presets.find((x) => x.id === id) : null;
   if (id && !p) return;
   stopManualOnly();
-  editor = { mode: p ? 'edit' : 'new', id: p ? p.id : null, wasCompact: !!settings.compact };
-  if (settings.compact) {
-    settings.compact = await ptz.setCompact(false);
-    renderCompact();
-  }
+  if (view.mode !== 'full') applyView(await ptz.setView('full'));
+  editor = { mode: p ? 'edit' : 'new', id: p ? p.id : null };
   document.body.classList.add('editing');
   $('#edName').value = p ? p.name : t('presets.defaultName', { n: presets.length + 1 });
   renderEditor();
+  renderCamStatus();
+  if (lastFrame) draw(lastFrame);
   if (document.activeElement) document.activeElement.blur(); // le frecce muovono la camera
   if (camState.state !== 'connected') toast(t('ed.notConnected'), 'warn', 6000);
   // da qui i richiami esterni (OBS, Stream Deck, tasti) restano in attesa;
@@ -606,15 +780,12 @@ async function openEditor(id = null) {
 
 async function closeEditor() {
   if (!editor) return;
-  const back = editor.wasCompact;
   editor = null;
   ptz.setEditing(false);
   document.body.classList.remove('editing');
+  renderCamStatus();
   renderPresets();
-  if (back) {
-    settings.compact = await ptz.setCompact(true);
-    renderCompact();
-  }
+  if (lastFrame) draw(lastFrame);
 }
 
 async function saveEditor() {
@@ -679,11 +850,10 @@ $('#edName').addEventListener('keydown', (e) => {
 $('#edDelete').addEventListener('click', async () => {
   const p = editorPreset();
   if (!p) return;
-  const r = await choice(t('presets.deleteTitle'), t('presets.deleteText', { name: p.name }), [
-    { label: t('common.cancel'), value: 'no', className: 'ghost' },
-    { label: t('common.delete'), value: 'yes', className: 'danger' },
-  ]);
-  if (r !== 'yes') return;
+  const ok = await confirmDlg({
+    icon: 'delete', title: t('presets.deleteTitle', { name: p.name }), text: t('presets.deleteText'), ok: t('common.delete'), danger: true,
+  });
+  if (!ok || !editorPreset()) return;
   presets = presets.filter((x) => x.id !== p.id);
   if (activeId === p.id) activeId = null;
   await persist();
@@ -692,7 +862,123 @@ $('#edDelete').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Impostazioni
+// Viste: completa, compatta (colonna sul bordo), laterale (linguetta sul bordo)
+
+function applyView(v) {
+  if (!v) return;
+  const prevMode = view.mode;
+  view = v;
+  settings.alwaysOnTop = !!v.alwaysOnTop;
+  document.body.classList.toggle('compact', v.mode === 'compact');
+  $$('#viewSeg button').forEach((b) => b.classList.toggle('on', b.dataset.view === v.mode));
+  $$('#sideSeg button').forEach((b) => b.classList.toggle('on', b.dataset.side === v.side));
+  for (const id of ['#btnPin', '#cPin']) $(id).setAttribute('aria-pressed', v.alwaysOnTop ? 'true' : 'false');
+  const other = v.side === 'left' ? 'right' : 'left';
+  const swapTitle = t(other === 'left' ? 'v.toLeft' : 'v.toRight');
+  $('#cSwap').title = swapTitle;
+  $('#cSwap').setAttribute('aria-label', swapTitle);
+  if (prevMode !== v.mode) {
+    if (v.mode !== 'full') resetManualUi();
+    applyPreviewSource();
+  }
+}
+
+async function setViewMode(mode) {
+  if (editor && mode !== 'full') return;
+  applyView(await ptz.setView(mode));
+}
+
+$('#viewSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-view]');
+  if (b) setViewMode(b.dataset.view);
+});
+$('#sideSeg').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-side]');
+  if (b) applyView(await ptz.setSide(b.dataset.side));
+});
+const togglePin = async () => applyView(await ptz.setOnTop(!view.alwaysOnTop));
+$('#btnPin').addEventListener('click', togglePin);
+$('#cPin').addEventListener('click', togglePin);
+$('#cSwap').addEventListener('click', async () => applyView(await ptz.setSide(view.side === 'left' ? 'right' : 'left')));
+$('#cFull').addEventListener('click', () => setViewMode('full'));
+$('#cOpen').addEventListener('click', () => setViewMode('full'));
+
+// ---------------------------------------------------------------------------
+// Rilevamento della camera (impostazioni e primo avvio)
+
+// sceglie il protocollo dai risultati: prima chi legge la posizione
+function analyzeDetection(r) {
+  const order = ['udp', 'tcp', 'sony'];
+  const proto = { udp: 'visca-udp', tcp: 'visca-tcp', sony: 'visca-sony' };
+  const visca = order.map((m) => r.visca.find((v) => v.mode === m)).filter(Boolean);
+  const best = visca.find((v) => v.ok && v.position);
+  const anyVisca = visca.find((v) => v.ok);
+  let chosen = null;
+  let needSlot = false;
+  if (best) chosen = { protocol: proto[best.mode], port: best.port };
+  else if (r.onvif.ok && r.onvif.ptz && r.onvif.position) chosen = { protocol: 'onvif', port: r.onvif.port };
+  else if (anyVisca) { chosen = { protocol: proto[anyVisca.mode], port: anyVisca.port }; needSlot = true; }
+  else if (r.onvif.ok && r.onvif.ptz) { chosen = { protocol: 'onvif', port: r.onvif.port }; needSlot = true; }
+  const onvifAuth = !chosen && r.onvif.ok && r.onvif.error && /author|autoriz|401/i.test(r.onvif.error);
+  const line = (html, cls = '') => `<div class="line ${cls}">${html}</div>`;
+  const rows = [];
+  for (const v of r.visca) {
+    const st = v.ok ? `${t('d.replies')}${v.position ? t('d.position') : t('d.noPosition')}` : t('d.noReply');
+    rows.push(line(`${esc(v.label)}: ${esc(st)}`, v.ok ? 'ok' : 'bad'));
+  }
+  if (r.onvif.ok) {
+    const det = r.onvif.error ? t('d.onvifErr', { error: r.onvif.error }) : `${r.onvif.ptz ? t('d.onvifPtz') : t('d.onvifNoPtz')}${r.onvif.position ? t('d.onvifPos') : ''}`;
+    rows.push(line(esc(t('d.onvif', { port: r.onvif.port, detail: det })), r.onvif.ptz ? 'ok' : 'bad'));
+  } else {
+    rows.push(line(esc(t('d.onvifNone')), 'bad'));
+  }
+  if (r.http.ok) rows.push(line(`${esc(t('d.web', { title: r.http.title || t('d.webPresent') }))}${r.http.server ? ` (${esc(r.http.server)})` : ''}`, 'bad'));
+  if (chosen) rows.unshift(line(`<b>${esc(t('d.set', { protocol: PROTOCOL_LABEL[chosen.protocol], port: chosen.port }))}</b>${needSlot ? esc(t('d.setSlot')) : ''}`, 'ok'));
+  return {
+    chosen, needSlot, onvifAuth, anyReply: !!(r.onvif.ok || r.http.ok || anyVisca), rows,
+  };
+}
+
+function deviceTags(d) {
+  return [d.onvif ? 'ONVIF' : null, d.rtsp ? t('d.tagRtsp') : null, d.http ? t('d.tagWeb') : null].filter(Boolean).join(' · ');
+}
+const deviceName = (d) => [d.name, d.hardware].filter(Boolean).join(' ').trim();
+const discoveredNames = new Map(); // ip -> nome letto dalla rete
+
+function deviceHtml(d, { selected = false, recommended = false } = {}) {
+  const name = deviceName(d);
+  return `<button type="button" class="device${selected ? ' sel' : ''}" data-ip="${esc(d.ip)}">`
+    + `<span class="dev-thumb">${ICONS.camera}</span>`
+    + `<span class="dev-text"><b>${esc(name || t('w.deviceGeneric'))}</b><span>${esc([d.ip, deviceTags(d)].filter(Boolean).join(' · '))}</span></span>`
+    + `${recommended ? `<span class="tag ok">${esc(t('w.recommended'))}</span>` : ''}</button>`;
+}
+
+// ---------------------------------------------------------------------------
+// Impostazioni: pagina a tutta finestra con le sezioni a sinistra
+
+let settingsSnapshot = '';
+let detectedProtocol = null;
+
+// linea sopra Annulla/Salva solo quando sotto c'è altro da scorrere
+function updateFootLine() {
+  const sc = $('#sScroll');
+  $('.s-foot').classList.toggle('scrolled', sc.scrollTop + sc.clientHeight < sc.scrollHeight - 2);
+}
+
+function showSection(sec) {
+  $$('.s-link').forEach((b) => b.classList.toggle('on', b.dataset.sec === sec));
+  $$('.s-panel').forEach((p) => p.classList.toggle('on', p.dataset.panel === sec));
+  $('#sScroll').scrollTop = 0;
+  updateFootLine();
+}
+$$('.s-link').forEach((b) => b.addEventListener('click', () => showSection(b.dataset.sec)));
+$('#sScroll').addEventListener('scroll', updateFootLine);
+new ResizeObserver(updateFootLine).observe($('#sScroll'));
+
+function setLine(iconEl, textEl, kind, text) {
+  iconEl.innerHTML = { ok: ICONS.check, bad: ICONS.fail, warn: ICONS.warnDot, busy: ICONS.spinner }[kind] || '';
+  textEl.textContent = text || '';
+}
 
 function fillSettingsForm() {
   const c = settings.camera;
@@ -705,54 +991,73 @@ function fillSettingsForm() {
   $('#sPass').value = c.pass || '';
   $('#sInvertPan').checked = !!c.invertPan;
   $('#sInvertTilt').checked = !!c.invertTilt;
-  $('#sSource').value = p.source;
+  segSet($('#sSource'), p.source);
   $('#sWidth').value = String(p.width || 960);
   $('#sRtsp').value = p.rtspUrl || '';
   $('#sRotate').checked = !!p.rotate180;
   $('#sGrid').checked = !!p.grid;
-  $('#sPresetMode').value = settings.presetMode;
+  $(settings.presetMode === 'slot' ? '#sModeSlot' : '#sModeApp').checked = true;
   $('#sSlotBase').value = settings.slotBase;
   $('#sGlobal').checked = !!settings.globalHotkeys;
   $('#discoverOut').innerHTML = '';
+  $('#detectDetails').hidden = true;
+  $('#foundList').hidden = true;
+  $('#foundList').innerHTML = '';
+  detectedProtocol = null;
+  setLine($('#detectIcon'), $('#detectText'), '', t('d.hint'));
+  $('#btnDetect').textContent = t('s.detect');
   $('#rtspOut').innerHTML = '';
+  setLine($('#rtspIcon'), $('#rtspText'), '', t('r.hint'));
   $('#sLanguage').value = settings.language || 'auto';
   $('#xEnable').checked = !!settings.api.enabled;
   $('#xPort').value = settings.api.port || 8765;
   $('#xLan').checked = !!settings.api.lan;
   $('#xLanWarn').hidden = !settings.api.lan;
   $('#sUpdates').checked = !settings.updates || settings.updates.check !== false;
+  segSet($('#sSide'), view.side);
+  $('#sOnTop').checked = !!view.alwaysOnTop;
+  $('#sDataDir').textContent = info.dataDir;
+  $('#gDataDir').textContent = info.dataDir;
+  $('#gAccount').textContent = info.user;
+  $('#sPresetsBadge').textContent = t('s.presetsBadge', { user: info.user, n: presets.length });
+  $('#aboutName').textContent = t('g.appVersion', { version: info.version });
+  $('#updVersion').textContent = t('g.version', { version: info.version });
+  $('#btnProject').hidden = !info.hasProject;
   renderUpdate(updateState);
   refreshApiInfo();
-  $('#aboutLine').textContent = t('s.about', { version: info.version, user: info.user, dir: info.dataDir });
   updateFormVisibility();
+  renderCamStatus();
+  renderVideoBadge();
   if (p.source === 'usb') listUsbDevices(p.usbDeviceId);
 }
 
 function updateFormVisibility() {
-  const src = $('#sSource').value;
-  $$('.rtsp-only').forEach((el) => { el.style.display = src === 'rtsp' ? '' : 'none'; });
-  $$('.usb-only').forEach((el) => { el.style.display = src === 'usb' ? '' : 'none'; });
-  const slot = $('#sPresetMode').value === 'slot';
-  $$('.slot-only').forEach((el) => { el.style.visibility = slot ? 'visible' : 'hidden'; });
+  const src = segGet($('#sSource'));
+  $$('.rtsp-only').forEach((el) => { el.hidden = src !== 'rtsp'; });
+  $$('.usb-only').forEach((el) => { el.hidden = src !== 'usb'; });
+  const slot = $('#sModeSlot').checked;
+  $('#modeSlotRow').classList.toggle('sel', slot);
+  $('#modeAppRow').classList.toggle('sel', !slot);
+  $('#sSlotBase').disabled = !slot;
   const onvif = $('#sProtocol').value === 'onvif';
   $('#sAddress').disabled = onvif;
-  $('#presetModeNote').textContent = slot ? t('s.noteSlot') : t('s.noteApp');
+  $('#rowAddress').style.opacity = onvif ? '.55' : '';
+  $('#sDetected').hidden = !detectedProtocol || $('#sProtocol').value !== detectedProtocol;
 }
 
-$('#sSource').addEventListener('change', () => {
+segBind($('#sSource'), (v) => {
   updateFormVisibility();
-  if ($('#sSource').value === 'usb') listUsbDevices(settings.preview.usbDeviceId);
+  if (v === 'usb') listUsbDevices(settings.preview.usbDeviceId);
 });
-$('#sPresetMode').addEventListener('change', () => {
+$$('input[name="presetMode"]').forEach((r) => r.addEventListener('change', () => {
   updateFormVisibility();
-  if ($('#sPresetMode').value === 'slot') {
-    toast(t('s.slotWarn', { n: $('#sSlotBase').value }), 'warn', 7000);
-  }
-});
+  if ($('#sModeSlot').checked) toast(t('s.slotWarn', { n: $('#sSlotBase').value }), 'warn', 7000);
+}));
 $('#sProtocol').addEventListener('change', () => {
   $('#sPort').value = DEFAULT_PORTS[$('#sProtocol').value];
   updateFormVisibility();
 });
+segBind($('#sSide'));
 
 async function listUsbDevices(selected) {
   const sel = $('#sUsb');
@@ -760,7 +1065,7 @@ async function listUsbDevices(selected) {
     // serve un primo accesso per leggere i nomi dei dispositivi
     const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }).catch(() => null);
     const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
-    if (tmp) tmp.getTracks().forEach((t) => t.stop());
+    if (tmp) tmp.getTracks().forEach((tr) => tr.stop());
     sel.innerHTML = devs.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || t('s.usbCamera', { n: i + 1 }))}</option>`).join('')
       || `<option value="">${esc(t('s.usbNone'))}</option>`;
     if (selected) sel.value = selected;
@@ -770,8 +1075,13 @@ async function listUsbDevices(selected) {
 }
 
 function formCamera() {
+  const host = $('#sHost').value.trim();
+  let name = '';
+  if (discoveredNames.has(host)) name = discoveredNames.get(host);
+  else if (host === settings.camera.host) name = settings.camera.name || '';
   return {
-    host: $('#sHost').value.trim(),
+    host,
+    name,
     protocol: $('#sProtocol').value,
     port: Number($('#sPort').value) || DEFAULT_PORTS[$('#sProtocol').value],
     address: clamp(Number($('#sAddress').value) || 1, 1, 7),
@@ -782,177 +1092,18 @@ function formCamera() {
   };
 }
 
-function line(html, cls = '') {
-  return `<div class="line ${cls}">${html}</div>`;
-}
-
-$('#btnDiscover').addEventListener('click', async () => {
-  const out = $('#discoverOut');
-  const btn = $('#btnDiscover');
-  btn.disabled = true;
-  out.innerHTML = line(esc(t('d.searching')));
-  try {
-    const r = await ptz.discover();
-    const nets = r.networks.map((n) => `${n.address}`).join(', ') || t('d.netsNone');
-    if (!r.devices.length) {
-      out.innerHTML = line(esc(t('d.none', { nets })), 'bad');
-      return;
-    }
-    out.innerHTML = r.devices.map((d) => {
-      const tags = [d.onvif ? 'ONVIF' : null, d.rtsp ? t('d.tagRtsp') : null, d.http ? t('d.tagWeb') : null].filter(Boolean).join(' · ');
-      const name = [d.name, d.hardware].filter(Boolean).join(' ');
-      return `<div class="line pick ok" data-ip="${esc(d.ip)}"><b>${esc(d.ip)}</b> — ${esc(tags)}${name ? ` — ${esc(name)}` : ''}</div>`;
-    }).join('') + line(esc(t('d.pick', { nets })), 'bad');
-    out.querySelectorAll('.pick').forEach((el) => el.addEventListener('click', () => {
-      $('#sHost').value = el.dataset.ip;
-      detectProtocol();
-    }));
-  } catch (e) {
-    out.innerHTML = line(esc(t('d.searchError', { error: errMsg(e) })), 'bad');
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-async function detectProtocol() {
-  const out = $('#discoverOut');
-  const c = formCamera();
-  if (!c.host) { toast(t('s.needIp'), 'warn'); return; }
-  const btn = $('#btnDetect');
-  btn.disabled = true;
-  out.innerHTML = line(esc(t('d.checking', { host: c.host })));
-  try {
-    const r = await ptz.detectProtocols({ host: c.host, user: c.user, pass: c.pass, address: c.address });
-    const rows = [];
-    for (const v of r.visca) {
-      const st = v.ok ? `${t('d.replies')}${v.position ? t('d.position') : t('d.noPosition')}` : t('d.noReply');
-      rows.push(line(`${esc(v.label)}: ${esc(st)}`, v.ok ? 'ok' : 'bad'));
-    }
-    if (r.onvif.ok) {
-      const det = r.onvif.error ? t('d.onvifErr', { error: r.onvif.error }) : `${r.onvif.ptz ? t('d.onvifPtz') : t('d.onvifNoPtz')}${r.onvif.position ? t('d.onvifPos') : ''}`;
-      rows.push(line(esc(t('d.onvif', { port: r.onvif.port, detail: det })), r.onvif.ptz ? 'ok' : 'bad'));
-    } else {
-      rows.push(line(esc(t('d.onvifNone')), 'bad'));
-    }
-    if (r.http.ok) rows.push(line(`${esc(t('d.web', { title: r.http.title || t('d.webPresent') }))}${r.http.server ? ` (${esc(r.http.server)})` : ''}`, 'bad'));
-
-    // scelta automatica: prima chi legge la posizione
-    const order = ['udp', 'tcp', 'sony'];
-    const proto = { udp: 'visca-udp', tcp: 'visca-tcp', sony: 'visca-sony' };
-    const best = order.map((m) => r.visca.find((v) => v.mode === m)).find((v) => v && v.ok && v.position);
-    const anyVisca = order.map((m) => r.visca.find((v) => v.mode === m)).find((v) => v && v.ok);
-    let chosen = null;
-    let needSlot = false;
-    if (best) chosen = { protocol: proto[best.mode], port: best.port };
-    else if (r.onvif.ok && r.onvif.ptz && r.onvif.position) chosen = { protocol: 'onvif', port: r.onvif.port };
-    else if (anyVisca) { chosen = { protocol: proto[anyVisca.mode], port: anyVisca.port }; needSlot = true; }
-    else if (r.onvif.ok && r.onvif.ptz) { chosen = { protocol: 'onvif', port: r.onvif.port }; needSlot = true; }
-
-    if (chosen) {
-      $('#sProtocol').value = chosen.protocol;
-      $('#sPort').value = chosen.port;
-      if (needSlot) $('#sPresetMode').value = 'slot';
-      updateFormVisibility();
-      rows.unshift(line(`<b>${esc(t('d.set', { protocol: PROTOCOL_LABEL[chosen.protocol], port: chosen.port }))}</b>${needSlot ? esc(t('d.setSlot')) : ''}${esc(t('d.pressSave'))}`, 'ok'));
-    } else if (r.onvif.ok && r.onvif.error && /author|autoriz|401/i.test(r.onvif.error)) {
-      rows.unshift(line(esc(t('d.onvifAuth')), 'bad'));
-    } else {
-      rows.unshift(line(esc(t('d.nothing')), 'bad'));
-    }
-    out.innerHTML = rows.join('');
-    if (settings.preview.source === 'rtsp' && !$('#sRtsp').value && (r.onvif.ok || r.http.ok || anyVisca)) findRtsp();
-  } catch (e) {
-    out.innerHTML = line(`Errore: ${esc(errMsg(e))}`, 'bad');
-  } finally {
-    btn.disabled = false;
-  }
-}
-$('#btnDetect').addEventListener('click', detectProtocol);
-
-async function findRtsp() {
-  const out = $('#rtspOut');
-  const c = formCamera();
-  if (!c.host) { toast(t('s.needIp'), 'warn'); return; }
-  const btn = $('#btnFindRtsp');
-  btn.disabled = true;
-  out.innerHTML = line(esc(t('r.searching')));
-  try {
-    const onvifPort = c.protocol === 'onvif' ? c.port : 80;
-    const r = await ptz.detectRtsp({ host: c.host, user: c.user, pass: c.pass, onvifPort });
-    const ok = r.filter((x) => x.ok);
-    if (!ok.length) {
-      out.innerHTML = line(esc(t('r.none')), 'bad')
-        + r.map((x) => line(`${esc(x.display)} — ${esc(x.error || t('r.invalid'))}`, 'bad')).join('');
-      return;
-    }
-    $('#sRtsp').value = ok[0].url;
-    out.innerHTML = line(`<b>${esc(t('r.found'))}</b> ${esc(ok[0].display)} (${esc(ok[0].note)}). ${esc(t('r.foundHint'))}`, 'ok')
-      + ok.map((x) => `<div class="line pick" data-url="${esc(x.url)}">${esc(x.display)} — ${esc(x.note)}</div>`).join('');
-    out.querySelectorAll('.pick').forEach((el) => el.addEventListener('click', () => { $('#sRtsp').value = el.dataset.url; }));
-  } catch (e) {
-    out.innerHTML = line(`Errore: ${esc(errMsg(e))}`, 'bad');
-  } finally {
-    btn.disabled = false;
-  }
-}
-$('#btnFindRtsp').addEventListener('click', findRtsp);
-
-$('#btnTestRtsp').addEventListener('click', async () => {
-  const url = $('#sRtsp').value.trim();
-  if (!url) return;
-  const out = $('#rtspOut');
-  out.innerHTML = line(esc(t('r.testing')));
-  const r = await ptz.testUrl(url);
-  out.innerHTML = r.ok ? line(esc(t('r.works')), 'ok') : line(esc(t('r.fails', { error: r.error || t('cam.error') })), 'bad');
-});
-
-$('#btnExport').addEventListener('click', async () => {
-  try {
-    const f = await ptz.exportPresets(presets);
-    if (f) toast(t('presets.exported', { n: presets.length }), 'ok');
-  } catch (e) { toast(errMsg(e), 'err'); }
-});
-
-$('#btnImport').addEventListener('click', async () => {
-  let list;
-  try { list = await ptz.importPresets(); } catch (e) { toast(errMsg(e), 'err'); return; }
-  if (!list) return;
-  const valid = list.filter((p) => p && (p.pos || p.slot != null));
-  if (!valid.length) { toast(t('presets.importInvalid'), 'warn'); return; }
-  const r = await choice(t('presets.importTitle'), t('presets.importText', { n: valid.length }), [
-    { label: t('common.cancel'), value: 'no', className: 'ghost' },
-    { label: t('presets.importAdd'), value: 'add' },
-    { label: t('presets.importReplace'), value: 'replace', className: 'primary' },
-  ]);
-  if (r !== 'add' && r !== 'replace') return;
-  const fresh = valid.map((p) => ({ ...p, id: uid() }));
-  presets = r === 'replace' ? fresh : presets.concat(fresh);
-  activeId = null;
-  renderPresets();
-  await persist();
-  toast(t('presets.imported', { n: fresh.length }), 'ok');
-});
-
-$('#btnDataFolder').addEventListener('click', () => ptz.openDataFolder());
-
-$('#btnSettings').addEventListener('click', () => {
-  fillSettingsForm();
-  $('#dlgSettings').showModal();
-});
-
-$('#dlgSettings').addEventListener('close', async () => {
-  if ($('#dlgSettings').returnValue !== 'save') return;
-  const partial = {
+function formPartial() {
+  return {
     camera: formCamera(),
     preview: {
-      source: $('#sSource').value,
+      source: segGet($('#sSource')),
       rtspUrl: $('#sRtsp').value.trim(),
       usbDeviceId: $('#sUsb').value || settings.preview.usbDeviceId || '',
       width: Number($('#sWidth').value) || 960,
       rotate180: $('#sRotate').checked,
       grid: $('#sGrid').checked,
     },
-    presetMode: $('#sPresetMode').value,
+    presetMode: $('#sModeSlot').checked ? 'slot' : 'app',
     slotBase: clamp(Number($('#sSlotBase').value) || 0, 0, 240),
     globalHotkeys: $('#sGlobal').checked,
     language: $('#sLanguage').value,
@@ -962,27 +1113,239 @@ $('#dlgSettings').addEventListener('close', async () => {
       lan: $('#xLan').checked,
     },
     updates: { check: $('#sUpdates').checked },
+    alwaysOnTop: $('#sOnTop').checked,
+    view: { side: segGet($('#sSide')) },
   };
+}
+
+// confronto per «uscire senza salvare?» (il dispositivo USB si legge in ritardo: non conta)
+function formSignature() {
+  const f = formPartial();
+  delete f.preview.usbDeviceId;
+  return JSON.stringify(f);
+}
+
+function openSettings(section = 'camera') {
+  if (anyDialogOpen()) $$('dialog').forEach((d) => { if (d.open) d.close(); });
+  if (moveActive || zoomActive || focusActive || keys.size) stopAll();
+  fillSettingsForm();
+  showSection(section);
+  document.body.classList.add('settings-open');
+  setWindowTitle(t('s.windowTitle'));
+  settingsSnapshot = formSignature();
+  requestAnimationFrame(updateFootLine);
+}
+
+function closeSettings() {
+  stopCapture();
+  document.body.classList.remove('settings-open');
+  setWindowTitle(t('app.name'));
+}
+
+async function cancelSettings() {
+  if (formSignature() !== settingsSnapshot) {
+    const ok = await confirmDlg({
+      icon: 'question', title: t('s.discardTitle'), text: t('s.discardText'), ok: t('s.discard'), danger: true,
+    });
+    if (!ok) return;
+  }
+  closeSettings();
+}
+
+async function saveSettingsPage() {
+  const partial = formPartial();
   const langChanged = partial.language !== (settings.language || 'auto');
+  const camNow = Object.fromEntries(Object.keys(partial.camera).map((k) => [k, k === 'name' ? (settings.camera.name || '') : settings.camera[k]]));
+  const camChanged = JSON.stringify(partial.camera) !== JSON.stringify(camNow);
   const prevSource = `${settings.preview.source}|${settings.preview.usbDeviceId}`;
+  const btn = $('#btnSaveSettings');
+  btn.disabled = true;
   try {
     const r = await ptz.saveSettings(partial);
     settings = r.settings;
     if (r.hotkeys && !r.hotkeys.ok) {
       toast(t('s.hotkeysBusy', { keys: r.hotkeys.failed.join(', ') }), 'warn', 6000);
     }
+    if (camChanged) { camFirstAttempt = true; showOffline(false); }
     if (`${settings.preview.source}|${settings.preview.usbDeviceId}` !== prevSource) applyPreviewSource();
+    closeSettings();
     renderCamStatus();
     renderPreviewState();
+    renderEditor();
     if (lastFrame) draw(lastFrame);
     if (langChanged) { window.location.reload(); return; }
     toast(t('s.saved'), 'ok');
   } catch (e) {
     toast(t('s.notSaved', { error: errMsg(e) }), 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('#btnSettings').addEventListener('click', () => openSettings('camera'));
+$('#btnSaveSettings').addEventListener('click', saveSettingsPage);
+$('#btnCancelSettings').addEventListener('click', cancelSettings);
+$('#btnCloseSettings').addEventListener('click', cancelSettings);
+$('#btnBackRegia').addEventListener('click', cancelSettings);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('settings-open') && !anyDialogOpen() && !capture) {
+    e.preventDefault();
+    cancelSettings();
   }
 });
 
-$('#xLan').addEventListener('change', () => { $('#xLanWarn').hidden = !$('#xLan').checked; });
+// ---- telecamera: ricerca in rete e rilevamento del protocollo
+
+$('#btnDiscover').addEventListener('click', async () => {
+  const btn = $('#btnDiscover');
+  const box = $('#foundList');
+  btn.disabled = true;
+  setLine($('#detectIcon'), $('#detectText'), 'busy', t('d.searching'));
+  box.hidden = true;
+  try {
+    const r = await ptz.discover();
+    const nets = r.networks.map((n) => `${n.address}`).join(', ') || t('d.netsNone');
+    if (!r.devices.length) {
+      setLine($('#detectIcon'), $('#detectText'), 'bad', t('d.none', { nets }));
+      return;
+    }
+    for (const d of r.devices) if (deviceName(d)) discoveredNames.set(d.ip, deviceName(d));
+    box.innerHTML = r.devices.map((d) => deviceHtml(d, { selected: d.ip === $('#sHost').value.trim() })).join('');
+    box.hidden = false;
+    setLine($('#detectIcon'), $('#detectText'), 'ok', t('d.pick', { nets }));
+  } catch (e) {
+    setLine($('#detectIcon'), $('#detectText'), 'bad', t('d.searchError', { error: errMsg(e) }));
+  } finally {
+    btn.disabled = false;
+  }
+});
+$('#foundList').addEventListener('click', (e) => {
+  const el = e.target.closest('.device');
+  if (!el) return;
+  $('#sHost').value = el.dataset.ip;
+  $$('#foundList .device').forEach((d) => d.classList.toggle('sel', d === el));
+  detectProtocol();
+});
+
+async function detectProtocol() {
+  const c = formCamera();
+  if (!c.host) { toast(t('s.needIp'), 'warn'); return; }
+  const btn = $('#btnDetect');
+  btn.disabled = true;
+  setLine($('#detectIcon'), $('#detectText'), 'busy', t('d.checking', { host: c.host }));
+  try {
+    const r = await ptz.detectProtocols({ host: c.host, user: c.user, pass: c.pass, address: c.address });
+    const a = analyzeDetection(r);
+    $('#discoverOut').innerHTML = a.rows.join('');
+    $('#detectDetails').hidden = false;
+    if (a.chosen) {
+      $('#sProtocol').value = a.chosen.protocol;
+      $('#sPort').value = a.chosen.port;
+      detectedProtocol = a.chosen.protocol;
+      if (a.needSlot) $('#sModeSlot').checked = true;
+      setLine($('#detectIcon'), $('#detectText'), a.needSlot ? 'warn' : 'ok', a.needSlot ? t('d.sumSlot') : t('d.sumOk'));
+    } else if (a.onvifAuth) {
+      detectedProtocol = null;
+      setLine($('#detectIcon'), $('#detectText'), 'bad', t('d.onvifAuth'));
+    } else {
+      detectedProtocol = null;
+      setLine($('#detectIcon'), $('#detectText'), 'bad', t('d.nothing'));
+    }
+    updateFormVisibility();
+    btn.textContent = t('s.detectAgain');
+    if (segGet($('#sSource')) === 'rtsp' && !$('#sRtsp').value && a.anyReply) findRtsp();
+  } catch (e) {
+    setLine($('#detectIcon'), $('#detectText'), 'bad', t('common.error', { error: errMsg(e) }));
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('#btnDetect').addEventListener('click', detectProtocol);
+
+// ---- anteprima: ricerca e prova del flusso
+
+async function findRtsp() {
+  const out = $('#rtspOut');
+  const c = formCamera();
+  if (!c.host) { toast(t('s.needIp'), 'warn'); return; }
+  const btn = $('#btnFindRtsp');
+  btn.disabled = true;
+  out.innerHTML = '';
+  setLine($('#rtspIcon'), $('#rtspText'), 'busy', t('r.searching'));
+  try {
+    const onvifPort = c.protocol === 'onvif' ? c.port : 80;
+    const r = await ptz.detectRtsp({ host: c.host, user: c.user, pass: c.pass, onvifPort });
+    const ok = r.filter((x) => x.ok);
+    if (!ok.length) {
+      setLine($('#rtspIcon'), $('#rtspText'), 'bad', t('r.none'));
+      out.innerHTML = r.map((x) => `<div class="line bad">${esc(x.display)} — ${esc(x.error || t('r.invalid'))}</div>`).join('');
+      return;
+    }
+    $('#sRtsp').value = ok[0].url;
+    setLine($('#rtspIcon'), $('#rtspText'), 'ok', `${t('r.found')} ${ok[0].display} (${ok[0].note}).${ok.length > 1 ? ` ${t('r.foundHint')}` : ''}`);
+    if (ok.length > 1) {
+      out.innerHTML = ok.map((x) => `<div class="line pick" data-url="${esc(x.url)}">${esc(x.display)} — ${esc(x.note)}</div>`).join('');
+    }
+  } catch (e) {
+    setLine($('#rtspIcon'), $('#rtspText'), 'bad', t('common.error', { error: errMsg(e) }));
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('#btnFindRtsp').addEventListener('click', findRtsp);
+$('#rtspOut').addEventListener('click', (e) => {
+  const el = e.target.closest('.pick');
+  if (el) $('#sRtsp').value = el.dataset.url;
+});
+
+$('#btnTestRtsp').addEventListener('click', async () => {
+  const url = $('#sRtsp').value.trim();
+  if (!url) return;
+  const btn = $('#btnTestRtsp');
+  btn.disabled = true;
+  setLine($('#rtspIcon'), $('#rtspText'), 'busy', t('r.testing'));
+  const r = await ptz.testUrl(url);
+  btn.disabled = false;
+  if (r.ok) setLine($('#rtspIcon'), $('#rtspText'), 'ok', t('r.works'));
+  else setLine($('#rtspIcon'), $('#rtspText'), 'bad', t('r.fails', { error: r.error || t('cam.error') }));
+});
+
+// ---- inquadrature: esporta, importa, cartella dati
+
+$('#btnExport').addEventListener('click', async () => {
+  try {
+    const f = await ptz.exportPresets(presets);
+    if (f) toast(t('presets.exported', { n: presets.length }), 'ok');
+  } catch (e) { toast(errMsg(e), 'err'); }
+});
+
+$('#btnImport').addEventListener('click', async () => {
+  let res;
+  try { res = await ptz.importPresets(); } catch (e) { toast(errMsg(e), 'err'); return; }
+  if (!res) return;
+  const list = Array.isArray(res) ? res : res.presets;
+  const file = Array.isArray(res) ? '' : res.name;
+  const valid = (list || []).filter((p) => p && (p.pos || p.slot != null));
+  if (!valid.length) { toast(t('presets.importInvalid'), 'warn'); return; }
+  const ok = await confirmDlg({
+    icon: 'import',
+    title: t('presets.importTitle', { n: valid.length }),
+    text: t('presets.importText', { file, n: presets.length }),
+    ok: t('presets.importAdd'),
+  });
+  if (!ok) return;
+  // si aggiungono in fondo, con un codice nuovo (così non si confondono con quelle che ci sono già)
+  const fresh = valid.map((p) => ({ ...p, id: uid() }));
+  presets = presets.concat(fresh);
+  renderPresets();
+  await persist();
+  $('#sPresetsBadge').textContent = t('s.presetsBadge', { user: info.user, n: presets.length });
+  toast(t('presets.imported', { n: fresh.length }), 'ok');
+});
+
+$('#btnDataFolder').addEventListener('click', () => ptz.openDataFolder());
+$('#btnDataFolder2').addEventListener('click', () => ptz.openDataFolder());
+$('#btnProject').addEventListener('click', () => ptz.openProject());
 
 // ---------------------------------------------------------------------------
 // Aggiornamenti: avviso discreto in alto quando su GitHub c'è una versione più recente
@@ -1008,12 +1371,15 @@ function renderUpdate(st) {
   const s = updateState;
   const show = !!s && s.state === 'available' && !updateDismissed;
   $('#updatePill').hidden = !show;
-  if (show) $('#btnUpdate').textContent = t('up.available', { v: s.latest });
-  $('#updStatus').textContent = updateText(s);
+  if (show) $('#btnUpdateText').textContent = t('up.available', { v: s.latest });
+  const status = $('#updStatus');
+  status.textContent = updateText(s);
+  status.classList.toggle('upd-link', !!s && s.state === 'available');
   $('#btnCheckUpdate').disabled = !!s && (s.state === 'checking' || s.state === 'disabled');
 }
 
 $('#btnUpdate').addEventListener('click', () => { ptz.openUpdate(); });
+$('#updStatus').addEventListener('click', () => { if (updateState && updateState.state === 'available') ptz.openUpdate(); });
 $('#btnUpdateLater').addEventListener('click', () => { updateDismissed = true; renderUpdate(); });
 $('#btnCheckUpdate').addEventListener('click', async () => {
   renderUpdate({ state: 'checking' });
@@ -1028,22 +1394,31 @@ $('#btnCheckUpdate').addEventListener('click', async () => {
 let api = null; // informazioni del collegamento (indirizzi, chiave, stato)
 
 function renderApiStatus(st) {
-  const el = $('#xStatus');
-  if (!el || !st) return;
-  el.textContent = st.state === 'on' ? t('x.statusOn', { addr: st.detail })
-    : st.state === 'error' ? t('x.statusError', { error: st.detail }) : t('x.statusOff');
+  if (!st) return;
+  const on = st.state === 'on';
+  const err = st.state === 'error';
+  $('#xDot').className = `big-dot ${on ? 'ok' : err ? 'bad' : ''}`;
+  $('#xStatusTitle').textContent = on ? t('x.activeTitle') : err ? t('x.errorTitle') : t('x.offTitle');
+  const lan = /^0\.0\.0\.0/.test(st.detail || '');
+  $('#xStatus').textContent = on ? `${lan ? t('x.fromLan') : t('x.fromLocal')} · ${st.detail}`
+    : err ? t('x.statusError', { error: st.detail }) : t('x.offNote');
 }
+
+const maskKey = (url) => url.replace(/k=[^&]*/, 'k=•••••••••••');
 
 async function refreshApiInfo() {
   api = await ptz.apiInfo();
-  $('#xObsUrl').value = api.obsUrl;
+  $('#xObsUrl').value = maskKey(api.obsUrl);
   renderApiStatus(api.status);
+  const keyed = Object.keys(settings.shortcuts || {}).filter((a) => api.actions.includes(a)).length;
+  $('#xCommandsInfo').textContent = t('x.commandsInfo', { n: api.actions.length, k: keyed });
   return api;
 }
 
-async function copyText(text) {
+async function copyText(text, note) {
   await ptz.copy(text);
-  toast(t('x.copied'), 'ok', 2000);
+  if (note) $('#cmdCopied').textContent = note;
+  else toast(t('x.copied'), 'ok', 2000);
 }
 
 const ACTION_PATHS = {
@@ -1054,11 +1429,14 @@ const ACTION_PATHS = {
 
 const FIXED_ACTIONS_UI = Object.keys(ACTION_PATHS);
 
-function actionUrl(action) {
-  const path = action.startsWith('preset:')
+function actionPath(action) {
+  return action.startsWith('preset:')
     ? `recall/id/${encodeURIComponent(action.slice(7))}`
     : ACTION_PATHS[action];
-  return `${api.base}/api/${path}?k=${encodeURIComponent(api.token)}`;
+}
+
+function actionUrl(action) {
+  return `${api.base}/api/${actionPath(action)}?k=${encodeURIComponent(api.token)}`;
 }
 
 function actionLabel(action) {
@@ -1094,7 +1472,7 @@ function accelFromEvent(e) {
   return { accel: [...mods, key].join('+') };
 }
 
-let capture = null; // { action, chip }
+let capture = null; // { action, handler }
 
 function stopCapture() {
   if (!capture) return;
@@ -1126,12 +1504,11 @@ async function saveShortcut(action, accel) {
     toast(t('c.saved', { key: accel }), 'ok', 2500);
   }
   renderCommands();
+  if (api) refreshApiInfo();
 }
 
-function startCapture(action, chip) {
+function startCapture(action) {
   stopCapture();
-  chip.textContent = t('c.press');
-  chip.classList.add('capturing');
   const handler = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1144,7 +1521,7 @@ function startCapture(action, chip) {
     const other = Object.entries(settings.shortcuts || {}).find(([a, k]) => k === r.accel && a !== action && valid.has(a));
     const fixed = settings.globalHotkeys && (/^Control\+Alt\+\d$/.test(r.accel) || r.accel === 'Control+Alt+S');
     if (other || fixed) {
-      toast(t('c.taken', { name: other ? actionLabel(other[0]) : t('s.global') }), 'warn', 5000);
+      toast(t('c.taken', { name: other ? actionLabel(other[0]) : t('x.ready') }), 'warn', 5000);
       return;
     }
     const act = capture.action;
@@ -1153,85 +1530,393 @@ function startCapture(action, chip) {
   };
   capture = { action, handler };
   window.addEventListener('keydown', handler, true);
+  renderCommands();
+}
+
+function commandRow(action) {
+  const row = document.createElement('div');
+  const capturing = !!capture && capture.action === action;
+  row.className = `cmd-row${capturing ? ' capturing' : ''}`;
+  row.dataset.action = action;
+  const idx = action.startsWith('preset:') ? presets.findIndex((p) => `preset:${p.id}` === action) : -1;
+  const accel = (settings.shortcuts || {})[action];
+  const name = idx >= 0 ? presets[idx].name : actionLabel(action);
+  const thumb = idx >= 0 ? thumbHtml(presets[idx], idx, { big: false }) : '';
+  const chipText = capturing ? t('c.press') : (accel || '—');
+  row.innerHTML = `<div class="label" title="${esc(actionLabel(action))}">${thumb}<span class="lname">${esc(name)}</span></div>`
+    + `<div class="key-cell"><div class="key-chip${accel && !capturing ? ' set' : ''}${capturing ? ' capturing' : ''}">${esc(chipText)}</div>`
+    + `${accel && !capturing ? `<button type="button" class="kc-clear b-clear" title="${esc(t('c.clear'))}" aria-label="${esc(t('c.clear'))}">${ICONS.x}</button>` : ''}</div>`
+    + `<button type="button" class="b-assign">${esc(capturing ? t('common.cancel') : accel ? t('c.change') : t('c.assign'))}</button>`
+    + `<button type="button" class="b-url" title="${esc(t('c.copyUrl'))}" aria-label="${esc(t('c.copyUrlOf', { name }))}">${ICONS.link}</button>`;
+  row.querySelector('.b-assign').addEventListener('click', () => (capturing ? stopCapture() : startCapture(action)));
+  const clr = row.querySelector('.b-clear');
+  if (clr) clr.addEventListener('click', () => saveShortcut(action, null));
+  row.querySelector('.b-url').addEventListener('click', () => copyText(actionUrl(action), t('c.copiedUrl', { path: actionPath(action) })));
+  return row;
 }
 
 function renderCommands() {
   const box = $('#cmdTable');
   if (!box || !api) return;
   $('#cmdApiOff').hidden = !!settings.api.enabled;
-  const actions = [...api.actions.filter((a) => !a.startsWith('preset:')),
-    ...presets.map((p) => `preset:${p.id}`)];
+  const keyedOnly = segGet($('#cmdFilter')) === 'keyed';
+  const sc = settings.shortcuts || {};
+  const keep = (a) => !keyedOnly || !!sc[a] || (capture && capture.action === a);
+  const fixed = api.actions.filter((a) => !a.startsWith('preset:')).filter(keep);
+  const pres = presets.map((p) => `preset:${p.id}`).filter(keep);
   box.innerHTML = '';
-  actions.forEach((action) => {
-    const row = document.createElement('div');
-    row.className = 'cmd-row';
-    const idx = action.startsWith('preset:') ? presets.findIndex((p) => `preset:${p.id}` === action) : -1;
-    const num = idx >= 0 ? `<span class="num">${idx < 10 ? HOTKEYS[idx] : '·'}</span>` : '';
-    const accel = (settings.shortcuts || {})[action];
-    row.innerHTML = `<div class="label" title="${esc(actionLabel(action))}">${num}${esc(actionLabel(action))}</div>`
-      + `<div class="key-chip${accel ? ' set' : ''}">${esc(accel || '—')}</div>`
-      + `<div class="btns"><button type="button" class="b-assign">${esc(t('c.assign'))}</button>`
-      + `${accel ? `<button type="button" class="b-clear ghost" title="${esc(t('c.clear'))}">✕</button>` : ''}</div>`
-      + `<button type="button" class="b-url ghost">${esc(t('c.copyUrl'))}</button>`;
-    const chip = row.querySelector('.key-chip');
-    row.querySelector('.b-assign').addEventListener('click', () => startCapture(action, chip));
-    const clr = row.querySelector('.b-clear');
-    if (clr) clr.addEventListener('click', () => saveShortcut(action, null));
-    row.querySelector('.b-url').addEventListener('click', () => copyText(actionUrl(action)));
-    box.appendChild(row);
+  const section = (title, list) => {
+    if (!list.length) return;
+    const h = document.createElement('h3');
+    h.className = 'cmd-sec';
+    h.textContent = title;
+    box.appendChild(h);
+    list.forEach((a) => box.appendChild(commandRow(a)));
+  };
+  section(t('c.secControl'), fixed);
+  section(t('c.secPresets'), pres);
+  if (!box.children.length) box.innerHTML = `<div class="cmd-empty">${esc(t('c.noneKeyed'))}</div>`;
+}
+
+segBind($('#cmdFilter'), () => renderCommands());
+$('#xCopyObs').addEventListener('click', () => copyText(api ? api.obsUrl : ''));
+$('#xCommands').addEventListener('click', async () => {
+  await refreshApiInfo();
+  segSet($('#cmdFilter'), 'all');
+  $('#cmdCopied').textContent = '';
+  renderCommands();
+  $('#dlgCommands').showModal();
+  if (document.activeElement) document.activeElement.blur(); // niente anello di selezione all'apertura
+});
+$('#cmdDone').addEventListener('click', () => $('#dlgCommands').close());
+$('#dlgCommands').addEventListener('close', () => stopCapture());
+$('#dlgCommands').addEventListener('cancel', (e) => {
+  // Esc durante la cattura annulla solo la cattura
+  if (capture) e.preventDefault();
+});
+$('#xNewKey').addEventListener('click', async () => {
+  const ok = await confirmDlg({
+    icon: 'key', title: t('x.newKeyTitle'), text: t('x.newKeyText'), ok: t('x.newKey'),
   });
-  if (capture) {
-    // dopo un ridisegno la cattura in corso riparte sulla riga giusta
-    const i = actions.indexOf(capture.action);
-    const chip = box.querySelectorAll('.key-chip')[i];
-    if (chip) { chip.textContent = t('c.press'); chip.classList.add('capturing'); }
+  if (!ok) return;
+  api = await ptz.newApiToken();
+  settings.api.token = api.token;
+  $('#xObsUrl').value = maskKey(api.obsUrl);
+  renderApiStatus(api.status);
+  toast(t('x.newKeyDone'), 'ok');
+});
+$('#xLan').addEventListener('change', () => { $('#xLanWarn').hidden = !$('#xLan').checked; });
+
+// ---------------------------------------------------------------------------
+// Primo avvio: trova la telecamera, l'anteprima video, poi «tutto pronto»
+
+const wz = {
+  step: 1, devices: [], selected: null, name: '', manual: false, analysis: null, rtsp: null,
+  token: 0, searching: false, saved: false,
+};
+
+function renderWzSteps() {
+  const names = [t('w.stepCamera'), t('w.stepVideo'), t('w.stepReady')];
+  const html = names.map((n, i) => {
+    const s = i + 1;
+    const cls = s < wz.step ? 'done' : s === wz.step ? 'cur' : 'todo';
+    return `<li class="${cls}"><span class="n">${s < wz.step ? '✓' : s}</span>${esc(n)}</li>`;
+  }).join('');
+  $$('.wz-steps').forEach((ol) => { ol.innerHTML = html; });
+}
+
+function wzGo(n) {
+  wz.step = n;
+  $$('.wz-step').forEach((el) => el.classList.toggle('on', Number(el.dataset.step) === n));
+  renderWzSteps();
+  if (n === 2) {
+    fitCanvas(wzCanvas);
+    const src = settings.preview.source;
+    $$('input[name="wzSrc"]').forEach((r) => { r.checked = r.value === src; });
+    // flusso non trovato da solo: si chiede subito l'indirizzo
+    const missing = src === 'rtsp' && !settings.preview.rtspUrl;
+    $('#wzUrlBox').hidden = !missing;
+    if (missing) $('#wzRtsp').value = '';
+    renderWzVideo();
+    if (lastFrame) draw(lastFrame);
+  }
+  if (n === 3) renderWzReady();
+  $('.wz-scroll').scrollTop = 0;
+}
+
+function openWizard() {
+  document.body.classList.add('wizard-open');
+  setWindowTitle(t('app.name'));
+  wzGo(1);
+  wzSearch();
+}
+
+function closeWizard() {
+  document.body.classList.remove('wizard-open');
+  renderAll();
+}
+
+function wzSetSearch(kind, title, sub) {
+  $('#wzSearchIcon').innerHTML = { ok: ICONS.check, bad: ICONS.fail, busy: ICONS.spinner, warn: ICONS.warnDot }[kind] || '';
+  $('#wzSearchTitle').textContent = title;
+  $('#wzSearchSub').textContent = sub || '';
+}
+
+function renderWzDevices() {
+  const best = wz.devices[0] && (wz.devices[0].onvif || wz.devices[0].rtsp) ? wz.devices[0].ip : null;
+  $('#wzDevices').innerHTML = wz.devices.map((d) => deviceHtml(d, { selected: d.ip === wz.selected, recommended: d.ip === best })).join('');
+}
+
+async function wzSearch() {
+  if (wz.searching) return;
+  wz.searching = true;
+  $('#wzSearchAgain').disabled = true;
+  wzSetSearch('busy', t('w.searching'), t('w.searchingSub'));
+  try {
+    const r = await ptz.discover();
+    wz.devices = r.devices;
+    for (const d of r.devices) if (deviceName(d)) discoveredNames.set(d.ip, deviceName(d));
+    const nets = r.networks.map((n) => n.address.replace(/\.\d+$/, '.x')).join(', ') || t('d.netsNone');
+    if (!r.devices.length) {
+      wzSetSearch('warn', t('w.noneTitle'), t('w.noneSub', { nets }));
+      if (!wz.selected) wzShowManual(true);
+    } else {
+      wzSetSearch('ok', t('w.doneTitle'), t('w.doneSub', { nets, n: r.devices.length }));
+      const best = r.devices[0];
+      if (!wz.selected && !wz.manual && (best.onvif || best.rtsp)) wzSelect(best.ip);
+    }
+    renderWzDevices();
+  } catch (e) {
+    wzSetSearch('bad', t('d.searchError', { error: errMsg(e) }), '');
+    wzShowManual(true);
+  } finally {
+    wz.searching = false;
+    $('#wzSearchAgain').disabled = false;
   }
 }
 
-$('#xCopyObs').addEventListener('click', () => copyText($('#xObsUrl').value));
-$('#xCommands').addEventListener('click', async () => {
-  await refreshApiInfo();
-  renderCommands();
-  $('#dlgCommands').showModal();
-});
-$('#dlgCommands').addEventListener('close', () => stopCapture());
-$('#xNewKey').addEventListener('click', async () => {
-  const r = await choice(t('x.newKeyTitle'), t('x.newKeyText'), [
-    { label: t('common.cancel'), value: 'no', className: 'ghost' },
-    { label: t('x.newKey'), value: 'yes', className: 'primary' },
-  ]);
-  if (r !== 'yes') return;
-  api = await ptz.newApiToken();
-  settings.api.token = api.token;
-  $('#xObsUrl').value = api.obsUrl;
-  renderApiStatus(api.status);
-});
-
-// ---------------------------------------------------------------------------
-// Finestra
-
-function renderPin() {
-  $('#btnPin').classList.toggle('on', !!settings.alwaysOnTop);
+function wzShowManual(on) {
+  wz.manual = on;
+  $('#wzManual').hidden = !on;
+  if (on) setTimeout(() => $('#wzHost').focus(), 0);
 }
 
-$('#btnPin').addEventListener('click', async () => {
-  const r = await ptz.saveSettings({ alwaysOnTop: !settings.alwaysOnTop });
+function wzSelect(ip) {
+  wz.selected = ip;
+  wz.name = discoveredNames.get(ip) || '';
+  renderWzDevices();
+  wzCheck(ip);
+}
+
+function wzCheckLine(el, kind, text, result) {
+  const icon = { ok: ICONS.check, bad: ICONS.fail, warn: ICONS.warnDot, wait: ICONS.spinner }[kind] || '';
+  el.innerHTML = `${icon}<span class="t">${esc(text)}</span><span class="r ${kind}">${esc(result)}</span>`;
+}
+
+async function wzCheck(host) {
+  wz.token += 1;
+  const token = wz.token;
+  wz.analysis = null;
+  wz.rtsp = null;
+  $('#wzUse').disabled = true;
+  $('#wzChecks').hidden = false;
+  $('#wzChecksTitle').textContent = t('w.checkOf', { host });
+  wzCheckLine($('#wzCheckCmd'), 'wait', t('w.cmd'), t('w.checkingShort'));
+  wzCheckLine($('#wzCheckPos'), 'wait', t('w.pos'), t('w.checkingShort'));
+  wzCheckLine($('#wzCheckVideo'), 'wait', t('w.video'), t('w.checkingShort'));
+  const user = settings.camera.user || 'admin';
+  const pass = settings.camera.pass || '';
+  let a;
+  try {
+    const r = await ptz.detectProtocols({ host, user, pass, address: 1 });
+    if (token !== wz.token) return;
+    a = analyzeDetection(r);
+  } catch (e) {
+    if (token !== wz.token) return;
+    wzCheckLine($('#wzCheckCmd'), 'bad', t('w.cmd'), errMsg(e));
+    return;
+  }
+  wz.analysis = { ...a, host };
+  if (a.chosen) {
+    wzCheckLine($('#wzCheckCmd'), 'ok', `${t('w.cmd')} · ${PROTOCOL_DESC[a.chosen.protocol]} ${a.chosen.port}`, t('w.replies'));
+    if (a.needSlot) wzCheckLine($('#wzCheckPos'), 'warn', t('w.pos'), t('w.posSlot'));
+    else wzCheckLine($('#wzCheckPos'), 'ok', t('w.pos'), t('w.posOk'));
+    $('#wzUse').disabled = false;
+  } else {
+    wzCheckLine($('#wzCheckCmd'), 'bad', a.onvifAuth ? t('d.onvifAuth') : t('w.cmd'), t('w.noReply'));
+    wzCheckLine($('#wzCheckPos'), '', t('w.pos'), '—');
+  }
+  // flusso video: può richiedere fino a un minuto, intanto si può già andare avanti
+  try {
+    const onvifPort = a.chosen && a.chosen.protocol === 'onvif' ? a.chosen.port : 80;
+    const list = await ptz.detectRtsp({ host, user, pass, onvifPort });
+    if (token !== wz.token) return;
+    const ok = list.find((x) => x.ok);
+    wz.rtsp = ok ? { url: ok.url, display: ok.display } : { url: '', display: '' };
+    if (ok) wzCheckLine($('#wzCheckVideo'), 'ok', `${t('w.video')} · ${ok.display}`, t('w.videoOk'));
+    else wzCheckLine($('#wzCheckVideo'), 'warn', t('w.video'), t('w.videoNone'));
+    // la camera è già stata scelta mentre si cercava il video: si usa subito il flusso trovato
+    if (ok && wz.saved && wz.saved === host && !settings.preview.rtspUrl) await wzSavePreview('rtsp', ok.url);
+  } catch (e) {
+    if (token !== wz.token) return;
+    wz.rtsp = { url: '', display: '' };
+    wzCheckLine($('#wzCheckVideo'), 'warn', t('w.video'), t('w.videoNone'));
+  }
+}
+
+$('#wzSearchAgain').addEventListener('click', () => wzSearch());
+$('#wzDevices').addEventListener('click', (e) => {
+  const el = e.target.closest('.device');
+  if (el) wzSelect(el.dataset.ip);
+});
+$('#wzManualBtn').addEventListener('click', () => wzShowManual(!wz.manual));
+$('#wzCheck').addEventListener('click', () => {
+  const host = $('#wzHost').value.trim();
+  if (!host) { toast(t('s.needIp'), 'warn'); return; }
+  wz.selected = host;
+  wz.name = discoveredNames.get(host) || '';
+  renderWzDevices();
+  wzCheck(host);
+});
+$('#wzHost').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#wzCheck').click(); } });
+$('#wzSkip').addEventListener('click', () => { closeWizard(); openSettings('camera'); });
+
+async function wzSave(partial) {
+  const r = await ptz.saveSettings(partial);
   settings = r.settings;
-  renderPin();
-});
-
-function renderCompact() {
-  document.body.classList.toggle('compact', !!settings.compact);
-  $('#btnCompact').textContent = settings.compact ? t('top.full') : t('top.compact');
+  return settings;
 }
 
-$('#btnCompact').addEventListener('click', async () => {
-  settings.compact = await ptz.setCompact(!settings.compact);
-  renderCompact();
+async function wzSavePreview(source, rtspUrl) {
+  const p = { source };
+  if (rtspUrl != null) p.rtspUrl = rtspUrl;
+  await wzSave({ preview: p });
+  if (source !== 'rtsp') previewState = { state: 'off', detail: '' };
+  applyPreviewSource();
+  renderWzVideo();
+}
+
+$('#wzUse').addEventListener('click', async () => {
+  const a = wz.analysis;
+  if (!a || !a.chosen) return;
+  const btn = $('#wzUse');
+  btn.disabled = true;
+  try {
+    const camera = {
+      ...settings.camera,
+      host: a.host,
+      name: wz.name || '',
+      protocol: a.chosen.protocol,
+      port: a.chosen.port,
+      address: 1,
+    };
+    const partial = { camera, presetMode: a.needSlot ? 'slot' : 'app' };
+    if (wz.rtsp && wz.rtsp.url) partial.preview = { source: 'rtsp', rtspUrl: wz.rtsp.url };
+    await wzSave(partial);
+    wz.saved = a.host;
+    camFirstAttempt = true;
+    applyPreviewSource();
+    renderCamStatus();
+    wzGo(2);
+  } catch (e) {
+    toast(t('s.notSaved', { error: errMsg(e) }), 'err');
+  } finally {
+    btn.disabled = false;
+  }
 });
+
+function renderWzVideo() {
+  if (!settings || wz.step !== 2) return;
+  const src = settings.preview.source;
+  const live = previewState.state === 'live';
+  const url = settings.preview.rtspUrl;
+  $$('.choice').forEach((c) => c.classList.toggle('sel', c.querySelector('input').checked));
+  $('#wzLive').hidden = !live;
+  wzCanvas.style.visibility = live ? 'visible' : 'hidden';
+  $('#wzNoVideo').classList.toggle('hidden', live);
+  $('#wzChangeUrl').hidden = src !== 'rtsp';
+  let kind = '';
+  let title = '';
+  let sub = '';
+  if (src === 'none') {
+    kind = 'ok'; title = t('w.noVideoChosen');
+    $('#wzNoVideoText').textContent = t('preview.off');
+  } else if (src === 'usb') {
+    kind = live ? 'ok' : previewState.state === 'error' ? 'bad' : 'busy';
+    title = live ? t('w.usbFound') : previewState.state === 'error' ? t('w.usbFail') : t('preview.connecting');
+    sub = previewState.state === 'error' ? previewState.detail : '';
+    $('#wzNoVideoText').textContent = title;
+  } else if (!url) {
+    kind = 'warn'; title = t('w.videoMissing');
+    $('#wzNoVideoText').textContent = t('w.videoMissingSub');
+  } else {
+    kind = live ? 'ok' : previewState.state === 'error' ? 'bad' : 'busy';
+    title = live ? t('w.videoFound') : previewState.state === 'error' ? t('preview.noSignal') : t('preview.connecting');
+    sub = url.replace(/\/\/[^@/]*@/, '//');
+    $('#wzNoVideoText').textContent = title;
+  }
+  $('#wzVideoIcon').innerHTML = { ok: ICONS.check, bad: ICONS.fail, busy: ICONS.spinner, warn: ICONS.warnDot }[kind] || '';
+  $('#wzVideoTitle').textContent = title;
+  $('#wzVideoUrl').textContent = sub;
+  $('#wzVideoUrl').title = sub;
+}
+
+$('#wzSources').addEventListener('change', (e) => {
+  if (e.target.name !== 'wzSrc') return;
+  wzSavePreview(e.target.value);
+});
+$('#wzChangeUrl').addEventListener('click', () => {
+  $('#wzUrlBox').hidden = !$('#wzUrlBox').hidden;
+  $('#wzRtsp').value = settings.preview.rtspUrl || '';
+  if (!$('#wzUrlBox').hidden) $('#wzRtsp').focus();
+});
+$('#wzTest').addEventListener('click', async () => {
+  const url = $('#wzRtsp').value.trim();
+  if (!url) return;
+  const btn = $('#wzTest');
+  btn.disabled = true;
+  $('#wzVideoIcon').innerHTML = ICONS.spinner;
+  $('#wzVideoTitle').textContent = t('r.testing');
+  const r = await ptz.testUrl(url);
+  btn.disabled = false;
+  if (r.ok) {
+    $('#wzUrlBox').hidden = true;
+    await wzSavePreview('rtsp', url);
+  } else {
+    renderWzVideo();
+    toast(t('r.fails', { error: r.error || t('cam.error') }), 'err', 6000);
+  }
+});
+$('#wzRtsp').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#wzTest').click(); } });
+$('#wzBack').addEventListener('click', () => wzGo(1));
+$('#wzContinue').addEventListener('click', () => wzGo(3));
+
+function renderWzReady() {
+  const c = settings.camera;
+  const src = settings.preview.source;
+  const name = c.name ? `<b>${esc(c.name)}</b> · ` : '';
+  const lines = [
+    `${t('w.sumCamera')} ${name}${esc(c.host)} · ${esc(PROTOCOL_DESC[c.protocol] || c.protocol)}`,
+    esc(src === 'rtsp' ? t('w.sumRtsp') : src === 'usb' ? t('w.sumUsb') : t('w.sumNone')),
+    settings.presetMode === 'slot' ? esc(t('w.sumSlot')) : t('w.sumApp', { user: `<b>${esc(info.user)}</b>` }),
+  ];
+  $('#wzSummary').innerHTML = lines.map((l) => `<div class="line">${ICONS.check}<span>${l}</span></div>`).join('');
+  $('#wzReadyLead').textContent = src === 'none' ? t('w.readyLeadNoVideo') : t('w.readyLead');
+}
+
+$('#wzFirstPreset').addEventListener('click', () => { closeWizard(); openEditor(); });
+$('#wzObs').addEventListener('click', () => { closeWizard(); openSettings('external'); });
+$('#wzReduced').addEventListener('click', () => { closeWizard(); openSettings('general'); });
+$('#wzOpen').addEventListener('click', () => closeWizard());
 
 // ---------------------------------------------------------------------------
 // Avvio
+
+function renderAll() {
+  renderCamStatus();
+  renderPresets();
+  renderPreviewState();
+}
 
 (async () => {
   const s = await ptz.init();
@@ -1241,42 +1926,52 @@ $('#btnCompact').addEventListener('click', async () => {
   info = s.info;
   window.I18N.setLang(info.lang);
   document.documentElement.lang = info.lang;
-  applyI18n();
+  if (info.platform === 'darwin') {
+    document.body.classList.add('mac');
+    const acc = document.querySelector('[data-i18n="g.winAccount"]');
+    if (acc) acc.dataset.i18n = 'g.macAccount';
+  }
+  window.UI.applyI18n(t);
+  setWindowTitle(t('app.name'));
+  renderMaximized(!!info.maximized);
   camState = s.camStatus;
   previewState = s.previewStatus;
   $('#account').textContent = info.user;
   bindSlider('moveSpeed', 'moveSpeed');
   bindSlider('recallSpeed', 'recallSpeed');
-  renderCamStatus();
-  renderPin();
-  renderCompact();
-  renderPresets();
+  setAfUi(true);
+  applyView(s.view);
   applyPreviewSource();
+  renderAll();
 
   ptz.onCamStatus((st) => {
     const was = camState.state;
     camState = st;
     renderCamStatus();
+    renderPreviewState();
     if (was === 'connected' && st.state !== 'connected') toast(t('cam.toast', { detail: st.detail || t('cam.lost') }), 'warn');
   });
   ptz.onCamLog((m) => toast(m, 'warn'));
   ptz.onHotkey((h) => {
     if (h.type === 'stop') resetManualUi(); // lo stop è già partito: si sistema solo l'interfaccia
   });
-  // inquadratura richiamata da OBS, Stream Deck, tasti globali o da questa finestra
+  // inquadratura richiamata da OBS, Stream Deck, tasti globali, vista laterale o da questa finestra
   ptz.onActive((id) => {
     activeId = id;
     const p = presets.find((x) => x.id === id);
     if (p && p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
-    if (!editor) renderPresets();
+    if (!editor) renderPresets(); else renderCompactList();
   });
   ptz.onApiStatus((st) => renderApiStatus(st));
   renderUpdate(s.update || null);
   ptz.onUpdateStatus((st) => renderUpdate(st));
   ptz.onSettingsChanged((s2) => { settings = s2; });
+  ptz.onViewChanged((v) => applyView(v));
+  ptz.onMaximized((on) => renderMaximized(on));
 
+  // primo avvio di questo account: la procedura guidata trova la telecamera
   if (!settings.camera.host) {
-    fillSettingsForm();
-    $('#dlgSettings').showModal();
+    if (view.mode !== 'full') applyView(await ptz.setView('full'));
+    openWizard();
   }
 })();

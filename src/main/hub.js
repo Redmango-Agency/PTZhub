@@ -51,7 +51,7 @@ class Hub extends EventEmitter {
     const cam = this.store.settings.camera || {};
     const list = this.presets();
     return {
-      camera: { ...this.getCamStatus(), host: cam.host || '', protocol: cam.protocol || '' },
+      camera: { ...this.getCamStatus(), host: cam.host || '', name: cam.name || '', protocol: cam.protocol || '' },
       activeId: this.activeId,
       activeIndex: list.findIndex((p) => p.id === this.activeId) + 1, // da 1, come /api/recall/<n>; 0 = nessuna
       editing: this.editing,

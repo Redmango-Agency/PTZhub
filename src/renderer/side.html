@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>PTZ Hub</title>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="side.css">
+</head>
+<body class="side-right">
+  <!-- linguetta chiusa: si apre passandoci sopra con il mouse -->
+  <div class="tab" id="tab" role="button" tabindex="0">
+    <span class="tab-num" id="tabNum"></span>
+    <span class="tab-name" id="tabName"></span>
+    <span class="dot" id="tabDot"></span>
+  </div>
+
+  <aside class="panel" id="panel">
+    <div class="p-head">
+      <span class="dot" id="pDot"></span>
+      <span class="p-cam" id="pCam"></span>
+      <div class="spacer"></div>
+      <button class="sq" id="sSwap" data-icon="swap"></button>
+      <button class="sq pin-btn" id="sPin" data-icon="pin" data-i18n-title="side.keepOpen" data-i18n-label="side.keepOpen" aria-pressed="false"></button>
+      <button class="sq" id="sFull" data-icon="expand" data-i18n-title="v.openFull" data-i18n-label="v.openFull"></button>
+    </div>
+    <nav class="p-list" id="pList" data-i18n-label="presets.title"></nav>
+    <div class="pair">
+      <button class="btn-ctl outline small" id="sHome" data-i18n="ctl.home"></button>
+      <button class="btn-stop small" id="sStop" data-i18n="ctl.stop" data-i18n-title="ctl.stopTitle"></button>
+    </div>
+  </aside>
+
+  <script src="../shared/i18n.js"></script>
+  <script src="common.js"></script>
+  <script src="side.js"></script>
+</body>
+</html>

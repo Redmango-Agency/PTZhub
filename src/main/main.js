@@ -6,7 +6,7 @@ const fs = require('fs');
 const {
   app, BrowserWindow, ipcMain, globalShortcut, dialog, shell, screen, clipboard, net, Menu,
 } = require('electron');
-const { Store, DEFAULT_PORTS } = require('./store');
+const { Store, DEFAULT_PORTS, VIEW_MODES } = require('./store');
 const { ViscaCamera } = require('./visca');
 const { OnvifCamera } = require('./onvif');
 const { Preview, testUrl } = require('./preview');
@@ -18,6 +18,8 @@ const updates = require('./updates');
 const PKG = require('../../package.json');
 
 const { t } = I18N;
+const IS_MAC = process.platform === 'darwin';
+const APP_TITLE = 'PTZ Hub'; // nome mostrato nelle finestre
 
 app.setName('PTZ Panel');
 app.setPath('userData', path.join(app.getPath('appData'), 'PTZ Panel'));
@@ -29,6 +31,7 @@ if (!gotLock) {
 }
 
 let win = null;
+let sideWin = null; // vista laterale: linguetta sul bordo dello schermo
 let store = null;
 let camera = null;
 let camStatus = { state: 'disconnected', detail: '' };
@@ -37,9 +40,13 @@ let previewStatus = { state: 'off', detail: '' };
 let frameInFlight = false;
 let frameSentAt = 0;
 let normalBounds = null;
+let wasMaximized = false;
+let currentMode = 'full'; // vista applicata alla finestra in questo momento
 let hub = null;
 let control = null;
 let apiStatus = { state: 'off', detail: '' };
+let quitting = false; // arresto in corso (stop alla camera già inviato)
+let closingApp = false; // l'utente ha chiesto di uscire: le finestre si chiudono senza riaprirsi
 
 // Aggiornamenti: repository GitHub da cui si scarica il programma (vuoto = controllo spento)
 // PTZ_UPDATE_REPO / PTZ_UPDATE_API servono solo ai test automatici
@@ -54,9 +61,17 @@ let updateTimer = null;
 let updateRunning = null;
 let updateGen = 0; // cambia quando si riprogramma: le catene di controlli vecchie si fermano
 
+// messaggi a tutte le finestre dell'app (principale e laterale)
 const send = (ch, data) => {
+  for (const w of [win, sideWin]) {
+    if (w && !w.isDestroyed()) w.webContents.send(ch, data);
+  }
+};
+// fotogrammi dell'anteprima: solo alla finestra principale
+const sendMain = (ch, data) => {
   if (win && !win.isDestroyed()) win.webContents.send(ch, data);
 };
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // ---------------------------------------------------------------------------
 // Camera
@@ -91,7 +106,7 @@ function startCamera() {
     return;
   }
   camera.on('status', (s) => { camStatus = s; send('cam:status', s); if (hub) hub.changed(); });
-  camera.on('log', (m) => send('cam:log', m));
+  camera.on('log', (m) => sendMain('cam:log', m));
   camera.connect().catch((e) => {
     camStatus = { state: 'error', detail: e.message };
     send('cam:status', camStatus);
@@ -106,21 +121,26 @@ function requireCamera() {
 // ---------------------------------------------------------------------------
 // Anteprima
 
-preview.on('status', (s) => { previewStatus = s; send('preview:status', s); });
+preview.on('status', (s) => { previewStatus = s; sendMain('preview:status', s); });
 preview.on('frame', (frame) => {
   // controllo di flusso: un fotogramma alla volta, così la latenza non si accumula
   if (frameInFlight && Date.now() - frameSentAt < 500) return;
   frameInFlight = true;
   frameSentAt = Date.now();
-  send('preview:frame', frame);
+  sendMain('preview:frame', frame);
 });
 
 function startPreview() {
   const p = store.settings.preview;
-  if (p.source === 'rtsp' && p.rtspUrl) {
+  // nelle viste ridotte il video non si vede: ffmpeg resta fermo e non pesa sul PC
+  if (p.source === 'rtsp' && p.rtspUrl && currentMode === 'full') {
     preview.start(p.rtspUrl, { width: p.width || 960 });
   } else {
     preview.stop();
+    if (previewStatus.state !== 'off') {
+      previewStatus = { state: 'off', detail: '' };
+      sendMain('preview:status', previewStatus);
+    }
   }
 }
 
@@ -128,7 +148,7 @@ function startPreview() {
 // Scorciatoie globali (funzionano anche con un altro programma in primo piano)
 
 function runSafe(promiseOrValue) {
-  Promise.resolve().then(() => promiseOrValue()).catch((e) => send('cam:log', e.message));
+  Promise.resolve().then(() => promiseOrValue()).catch((e) => sendMain('cam:log', e.message));
 }
 
 function applyGlobalHotkeys() {
@@ -184,7 +204,15 @@ function apiInfo() {
 }
 
 // ---------------------------------------------------------------------------
-// Finestra
+// Finestre e viste
+//  - completa: la Regia, finestra normale
+//  - compatta: la stessa finestra diventa una colonna stretta agganciata al bordo
+//  - laterale: la finestra principale si nasconde e resta una linguetta sul bordo dello
+//    schermo che si apre passandoci sopra con il mouse
+
+const FULL_MIN = { width: 960, height: 640 };
+const COMPACT = { width: 260, height: 620, minHeight: 360 };
+const SIDE = { tabW: 30, tabH: 150, panelW: 248, panelH: 500, pad: 18 };
 
 function boundsVisible(b) {
   if (!b) return false;
@@ -194,32 +222,233 @@ function boundsVisible(b) {
   });
 }
 
+const viewSide = () => (store.settings.view && store.settings.view.side === 'left' ? 'left' : 'right');
+const viewState = () => ({ mode: currentMode, side: viewSide(), alwaysOnTop: !!store.settings.alwaysOnTop });
+
+// schermo su cui si trova (o si trovava) la finestra principale
+function currentDisplay() {
+  if (win && !win.isDestroyed() && win.isVisible()) return screen.getDisplayMatching(win.getBounds());
+  if (sideWin && !sideWin.isDestroyed()) return screen.getDisplayMatching(sideWin.getBounds());
+  const b = normalBounds || store.settings.bounds;
+  if (b && boundsVisible(b)) return screen.getDisplayMatching(b);
+  return screen.getPrimaryDisplay();
+}
+
+function compactBounds(display, side, keep) {
+  const a = display.workArea;
+  const h = Math.min(keep ? keep.height : COMPACT.height, a.height);
+  const x = side === 'left' ? a.x : a.x + a.width - COMPACT.width;
+  const y = keep ? clamp(keep.y, a.y, a.y + a.height - h) : Math.round(a.y + (a.height - h) / 2);
+  return { x, y, width: COMPACT.width, height: h };
+}
+
+function fullBounds() {
+  const nb = normalBounds || store.settings.bounds;
+  if (nb && boundsVisible(nb)) return nb;
+  const a = currentDisplay().workArea;
+  const w = Math.min(1280, a.width);
+  const h = Math.min(820, a.height);
+  return { x: Math.round(a.x + (a.width - w) / 2), y: Math.round(a.y + (a.height - h) / 2), width: w, height: h };
+}
+
+function applyOnTop() {
+  if (win && !win.isDestroyed()) win.setAlwaysOnTop(!!store.settings.alwaysOnTop, 'floating');
+}
+
+// limiti di dimensione della finestra principale per la vista indicata
+function applyWindowLimits(mode) {
+  if (!win) return;
+  if (mode === 'compact') {
+    win.setMaximizable(false);
+    win.setFullScreenable(false);
+    win.setMinimumSize(COMPACT.width, COMPACT.minHeight);
+    win.setMaximumSize(COMPACT.width, 10000); // larghezza fissa, altezza libera
+    if (IS_MAC) win.setWindowButtonVisibility(false);
+  } else {
+    win.setMaximumSize(0, 0); // 0 = nessun limite
+    win.setMinimumSize(FULL_MIN.width, FULL_MIN.height);
+    win.setMaximizable(true);
+    win.setFullScreenable(true);
+    if (IS_MAC) win.setWindowButtonVisibility(true);
+  }
+}
+
+function rememberFullBounds() {
+  if (!win || win.isDestroyed() || currentMode !== 'full') return;
+  wasMaximized = win.isMaximized();
+  normalBounds = wasMaximized ? win.getNormalBounds() : win.getBounds();
+  try { store.saveSettings({ bounds: normalBounds }); } catch (_) { /* non essenziale */ }
+}
+
+function setView(mode) {
+  if (!VIEW_MODES.includes(mode)) mode = 'full';
+  if (!win || win.isDestroyed()) return viewState();
+  const prev = currentMode;
+  if (prev === mode) {
+    if (mode !== 'side') { win.show(); win.focus(); }
+    return viewState();
+  }
+  const display = currentDisplay();
+  rememberFullBounds();
+  currentMode = mode;
+  try { store.saveSettings({ view: { mode } }); } catch (_) { /* si ricorda al prossimo salvataggio */ }
+  // prima cambia l'interfaccia, poi la finestra: niente vista completa schiacciata a 260 px
+  send('view:changed', viewState());
+
+  if (mode === 'side') {
+    showSideWindow(display);
+    win.hide();
+  } else {
+    destroySideWindow();
+    if (win.isMaximized()) win.unmaximize();
+    if (win.isFullScreen()) win.setFullScreen(false);
+    applyWindowLimits(mode);
+    if (mode === 'compact') {
+      win.setBounds(compactBounds(display, viewSide()));
+    } else {
+      win.setBounds(fullBounds());
+      if (wasMaximized) win.maximize();
+    }
+    applyOnTop();
+    win.show();
+    win.focus();
+  }
+  startPreview();
+  return viewState();
+}
+
+function setSide(side) {
+  const s = side === 'left' ? 'left' : 'right';
+  try { store.saveSettings({ view: { side: s } }); } catch (_) { /* ignora */ }
+  if (currentMode === 'compact' && win && !win.isDestroyed()) {
+    win.setBounds(compactBounds(currentDisplay(), s, win.getBounds()));
+  } else if (currentMode === 'side' && sideWin && !sideWin.isDestroyed()) {
+    placeSideWindow(sideExpanded);
+  }
+  send('view:changed', viewState());
+  return viewState();
+}
+
+// ---- vista laterale --------------------------------------------------------
+
+let sideExpanded = false;
+let sideDisplayId = null;
+
+function sideBounds(expanded) {
+  const d = screen.getAllDisplays().find((x) => x.id === sideDisplayId) || screen.getPrimaryDisplay();
+  const a = d.workArea;
+  const w = (expanded ? SIDE.panelW : SIDE.tabW) + SIDE.pad;
+  const h = Math.min((expanded ? SIDE.panelH : SIDE.tabH) + SIDE.pad * 2, a.height);
+  const x = viewSide() === 'left' ? a.x : a.x + a.width - w;
+  const y = Math.round(a.y + (a.height - h) / 2);
+  return { x, y, width: w, height: h };
+}
+
+function placeSideWindow(expanded) {
+  if (!sideWin || sideWin.isDestroyed()) return;
+  sideExpanded = !!expanded;
+  const b = sideBounds(sideExpanded);
+  // su Linux una finestra non ridimensionabile ha dimensioni bloccate anche per il programma
+  const unlock = process.platform === 'linux';
+  if (unlock) sideWin.setResizable(true);
+  sideWin.setBounds(b);
+  if (unlock) sideWin.setResizable(false);
+}
+
+function webPrefs() {
+  return {
+    preload: path.join(__dirname, 'preload.js'),
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    backgroundThrottling: false,
+  };
+}
+
+function showSideWindow(display) {
+  sideDisplayId = (display || currentDisplay()).id;
+  if (sideWin && !sideWin.isDestroyed()) {
+    placeSideWindow(false);
+    sideWin.showInactive();
+    return;
+  }
+  sideExpanded = false;
+  sideWin = new BrowserWindow({
+    ...sideBounds(false),
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    title: APP_TITLE,
+    icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
+    webPreferences: webPrefs(),
+  });
+  sideWin.setMenu(null);
+  sideWin.setAlwaysOnTop(true, 'floating');
+  if (IS_MAC) sideWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  sideWin.loadFile(path.join(__dirname, '..', 'renderer', 'side.html'));
+  sideWin.once('ready-to-show', () => { if (sideWin && !sideWin.isDestroyed()) sideWin.showInactive(); });
+  sideWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  sideWin.webContents.on('will-navigate', (e) => e.preventDefault());
+  sideWin.webContents.on('render-process-gone', () => {
+    setTimeout(() => { if (sideWin && !sideWin.isDestroyed()) sideWin.webContents.reload(); }, 1000);
+  });
+  const own = sideWin;
+  sideWin.on('closed', () => {
+    if (sideWin === own) sideWin = null;
+    // chiusa da sola (Alt+F4) mentre era la vista attiva: torna l'app completa
+    if (!closingApp && !quitting && currentMode === 'side' && win && !win.isDestroyed()) setView('full');
+  });
+}
+
+function destroySideWindow() {
+  if (!sideWin) return;
+  const w = sideWin;
+  sideWin = null;
+  if (!w.isDestroyed()) w.destroy();
+}
+
+// ---- finestra principale ---------------------------------------------------
+
 function createWindow() {
   const saved = store.settings.bounds;
-  const compact = !!store.settings.compact;
+  currentMode = store.settings.view.mode;
+  if (boundsVisible(saved)) normalBounds = saved;
+  const compact = currentMode === 'compact';
   win = new BrowserWindow({
     width: 1280,
     height: 820,
-    minWidth: compact ? 360 : 960,
-    minHeight: compact ? 260 : 640,
+    minWidth: FULL_MIN.width,
+    minHeight: FULL_MIN.height,
     ...(boundsVisible(saved) ? saved : {}),
-    backgroundColor: '#0e1014',
-    title: 'PTZ Panel',
+    backgroundColor: '#F5F5F7',
+    title: APP_TITLE,
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
     autoHideMenuBar: true,
     show: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      backgroundThrottling: false,
-    },
+    // barra del titolo disegnata dall'app (chiara come il resto); sul Mac restano i pulsanti di sistema
+    ...(IS_MAC ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 13 } } : { frame: false }),
+    webPreferences: webPrefs(),
   });
   win.setMenu(null);
-  win.setAlwaysOnTop(!!store.settings.alwaysOnTop, 'floating');
-  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  applyOnTop();
+  if (compact) {
+    applyWindowLimits('compact');
+    win.setBounds(compactBounds(currentDisplay(), viewSide()));
+  }
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { view: currentMode } });
+  win.once('ready-to-show', () => {
+    if (currentMode === 'side') showSideWindow(currentDisplay());
+    else win.show();
+  });
 
   win.webContents.on('before-input-event', (_e, input) => {
     if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
@@ -229,40 +458,26 @@ function createWindow() {
 
   const saveBounds = () => {
     if (!win || win.isDestroyed() || win.isMinimized() || win.isMaximized()) return;
-    if (store.settings.compact) return; // in modalità compatta si conservano le dimensioni normali
-    try { store.saveSettings({ bounds: win.getBounds() }); } catch (_) { /* non essenziale */ }
+    if (currentMode !== 'full') return; // nelle viste ridotte si conservano le dimensioni della completa
+    normalBounds = win.getBounds();
+    try { store.saveSettings({ bounds: normalBounds }); } catch (_) { /* non essenziale */ }
   };
   let boundsTimer = null;
   const queueSave = () => { clearTimeout(boundsTimer); boundsTimer = setTimeout(saveBounds, 600); };
   win.on('resize', queueSave);
   win.on('move', queueSave);
-  win.on('closed', () => { win = null; });
+  win.on('maximize', () => sendMain('win:maximized', true));
+  win.on('unmaximize', () => sendMain('win:maximized', false));
+  win.on('closed', () => {
+    win = null;
+    destroySideWindow(); // senza la finestra principale l'app si chiude
+  });
   // se l'interfaccia va in crash, la testa si ferma e la pagina si ricarica
   win.webContents.on('render-process-gone', () => {
     if (camera) camera.stopAll();
     if (hub) hub.setEditing(false); // l'editor si è chiuso con la pagina: i richiami esterni ripartono
     setTimeout(() => { if (win && !win.isDestroyed()) win.webContents.reload(); }, 1000);
   });
-  if (compact) {
-    const b = win.getBounds();
-    win.setBounds({ x: b.x + b.width - 520, y: b.y, width: 520, height: 420 });
-  }
-}
-
-function setCompact(on) {
-  if (!win) return;
-  if (on) {
-    if (!store.settings.compact) normalBounds = win.getBounds();
-    store.saveSettings({ compact: true, bounds: normalBounds || store.settings.bounds });
-    win.setMinimumSize(360, 260);
-    const b = win.getBounds();
-    win.setBounds({ x: b.x + b.width - 520, y: b.y, width: 520, height: 420 });
-  } else {
-    store.saveSettings({ compact: false });
-    win.setMinimumSize(960, 640);
-    const nb = normalBounds || store.settings.bounds;
-    if (nb && boundsVisible(nb)) win.setBounds(nb); else win.setSize(1280, 820);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +490,7 @@ function runUpdateCheck() {
   }
   if (updateRunning) return updateRunning;
   updateStatus = { ...updateStatus, state: 'checking' };
-  send('update:status', updateStatus);
+  sendMain('update:status', updateStatus);
   updateRunning = updates.checkForUpdate({
     repo: UPDATE_REPO,
     current: APP_VERSION,
@@ -285,7 +500,7 @@ function runUpdateCheck() {
     .then((r) => {
       updateStatus = { ...r, checkedAt: Date.now() };
       updateRunning = null;
-      send('update:status', updateStatus);
+      sendMain('update:status', updateStatus);
       return updateStatus;
     });
   return updateRunning;
@@ -317,13 +532,23 @@ function scheduleUpdateChecks() {
   updateTimer = setTimeout(tick, first);
 }
 
+// pagina del progetto su GitHub (solo se il repository è configurato e valido)
+function projectUrl() {
+  if (!UPDATE_REPO) return '';
+  const url = `https://github.com/${UPDATE_REPO}`;
+  return /^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/.test(url) ? url : '';
+}
+
 // ---------------------------------------------------------------------------
 // IPC
 
+const fromMain = (e) => !!win && !win.isDestroyed() && e.sender === win.webContents;
+const fromSide = (e) => !!sideWin && !sideWin.isDestroyed() && e.sender === sideWin.webContents;
+
 function registerIpc() {
-  ipcMain.handle('init', () => {
-    // pagina appena caricata (o ricaricata): non c'è nessun editor aperto
-    hub.setEditing(false);
+  ipcMain.handle('init', (e) => {
+    // pagina principale appena caricata (o ricaricata): non c'è nessun editor aperto
+    if (fromMain(e)) hub.setEditing(false);
     return initData();
   });
   const initData = () => ({
@@ -332,12 +557,15 @@ function registerIpc() {
     activeId: hub.activeId,
     camStatus,
     previewStatus,
+    view: viewState(),
     info: {
       user: os.userInfo().username,
       dataDir: app.getPath('userData'),
       version: APP_VERSION,
       platform: process.platform,
       lang: I18N.getLang(),
+      hasProject: !!projectUrl(),
+      maximized: !!(win && !win.isDestroyed() && win.isMaximized()),
     },
     update: updateStatus,
   });
@@ -347,16 +575,22 @@ function registerIpc() {
     const beforePrev = JSON.stringify(store.settings.preview);
     const beforeApi = JSON.stringify(store.settings.api);
     const beforeUpd = JSON.stringify(store.settings.updates);
-    const s = store.saveSettings(partial || {});
+    const beforeSide = viewSide();
+    const p = { ...(partial || {}) };
+    delete p.view; // la vista si cambia solo con app:setView / app:setSide
+    const s = store.saveSettings(p);
     I18N.setLang(I18N.resolve(s.language, app.getLocale()));
     if (JSON.stringify(s.camera) !== before) startCamera();
     if (JSON.stringify(s.preview) !== beforePrev) startPreview();
-    if (win) win.setAlwaysOnTop(!!s.alwaysOnTop, 'floating');
+    applyOnTop();
     if (JSON.stringify(s.api) !== beforeApi) await startControl();
     if (JSON.stringify(s.updates) !== beforeUpd) scheduleUpdateChecks();
+    if (partial && partial.view && partial.view.side && partial.view.side !== beforeSide) setSide(partial.view.side);
     hub.changed();
     const hk = applyGlobalHotkeys();
-    return { settings: s, hotkeys: hk };
+    if (sideWin && !sideWin.isDestroyed()) sideWin.webContents.send('settings:changed', store.settings);
+    send('view:changed', viewState());
+    return { settings: store.settings, hotkeys: hk };
   });
 
   ipcMain.handle('presets:save', (_e, list) => {
@@ -371,19 +605,23 @@ function registerIpc() {
     }
     hub.presetsChanged();
     applyGlobalHotkeys(); // i tasti delle inquadrature eliminate si liberano
+    if (sideWin && !sideWin.isDestroyed()) sideWin.webContents.send('presets:changed', r);
     return r;
   });
 
-  ipcMain.handle('cam:recallPreset', async (_e, id, speed, opts) => {
-    // dall'editor il richiamo passa anche con la modifica in corso
-    const p = await hub.recallId(id, speed, { force: !!(opts && opts.editor) });
+  ipcMain.handle('cam:recallPreset', async (e, id, speed, opts) => {
+    // dall'editor il richiamo passa anche con la modifica in corso (solo dalla finestra principale)
+    const force = !!(opts && opts.editor) && fromMain(e);
+    const p = await hub.recallId(id, speed, { force });
     return p ? { id: p.id } : { id: null, superseded: true };
   });
-  ipcMain.on('ui:editing', (_e, on) => hub.setEditing(!!on));
+  ipcMain.on('ui:editing', (e, on) => { if (fromMain(e)) hub.setEditing(!!on); });
   // inquadratura appena salvata: la camera è lì, tutti (OBS, successiva/precedente) lo sanno
   ipcMain.on('cam:setActive', (_e, id) => {
     hub.setActive(store.presets.some((p) => p.id === id) ? id : null);
   });
+  // «Riprova ora»: si riapre subito il collegamento con la camera
+  ipcMain.handle('cam:reconnect', () => { startCamera(); return camStatus; });
   ipcMain.handle('api:info', () => apiInfo());
   ipcMain.handle('api:newToken', async () => {
     store.saveSettings({ api: { token: Store.newToken() } });
@@ -405,16 +643,21 @@ function registerIpc() {
     return r.filePath;
   });
 
+  // restituisce { presets, name }: il nome del file serve alla conferma
   ipcMain.handle('presets:import', async () => {
-    const r = await dialog.showOpenDialog(win, {
-      title: t('main.importTitle'),
-      properties: ['openFile'],
-      filters: [{ name: t('main.fileFilter'), extensions: ['json'] }],
-    });
-    if (r.canceled || !r.filePaths[0]) return null;
-    const data = JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8'));
+    let file = TEST_ENV.PTZ_TEST_IMPORT_FILE || null; // solo per i test automatici
+    if (!file) {
+      const r = await dialog.showOpenDialog(win, {
+        title: t('main.importTitle'),
+        properties: ['openFile'],
+        filters: [{ name: t('main.fileFilter'), extensions: ['json'] }],
+      });
+      if (r.canceled || !r.filePaths[0]) return null;
+      [file] = r.filePaths;
+    }
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!Array.isArray(data.presets)) throw new Error(t('main.invalidFile'));
-    return data.presets;
+    return { presets: data.presets, name: path.basename(file) };
   });
 
   // comandi di movimento: senza risposta, per la latenza minima
@@ -432,7 +675,7 @@ function registerIpc() {
         default: break;
       }
     } catch (e) {
-      send('cam:log', e.message);
+      sendMain('cam:log', e.message);
     }
   });
 
@@ -495,8 +738,8 @@ function registerIpc() {
       seen.add(c.url);
       const full = withAuth(c.url);
       // eslint-disable-next-line no-await-in-loop
-      const t = await testUrl(full, 7000);
-      results.push({ url: full, display: c.url, note: c.note, ok: t.ok, error: t.error });
+      const tr = await testUrl(full, 7000);
+      results.push({ url: full, display: c.url, note: c.note, ok: tr.ok, error: tr.error });
       if (results.filter((r) => r.ok).length >= 3) break;
     }
     return results;
@@ -506,7 +749,29 @@ function registerIpc() {
 
   ipcMain.on('preview:ack', () => { frameInFlight = false; });
 
-  ipcMain.handle('app:setCompact', (_e, on) => { setCompact(!!on); return store.settings.compact; });
+  // viste: completa, compatta, laterale e bordo dello schermo
+  ipcMain.handle('app:setView', (_e, mode) => setView(mode));
+  ipcMain.handle('app:setSide', (_e, side) => setSide(side));
+  ipcMain.handle('app:setOnTop', (_e, on) => {
+    store.saveSettings({ alwaysOnTop: !!on });
+    applyOnTop();
+    send('view:changed', viewState());
+    send('settings:changed', store.settings);
+    return viewState();
+  });
+  // compatibilità con la 1.3: compatta sì/no
+  ipcMain.handle('app:setCompact', (_e, on) => setView(on ? 'compact' : 'full').mode === 'compact');
+  ipcMain.on('side:expand', (e, on) => { if (fromSide(e)) placeSideWindow(!!on); });
+
+  // pulsanti della barra del titolo disegnata dall'app
+  ipcMain.on('win:control', (e, what) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (!w || w !== win) return;
+    if (what === 'minimize') w.minimize();
+    else if (what === 'maximize') { if (w.isMaximized()) w.unmaximize(); else if (currentMode === 'full') w.maximize(); }
+    else if (what === 'close') w.close();
+  });
+
   ipcMain.handle('app:openDataFolder', () => shell.openPath(app.getPath('userData')));
   ipcMain.handle('update:check', () => runUpdateCheck());
   ipcMain.handle('update:open', () => {
@@ -515,32 +780,43 @@ function registerIpc() {
     shell.openExternal(url);
     return true;
   });
+  ipcMain.handle('app:openProject', () => {
+    const url = projectUrl();
+    if (!url) return false;
+    shell.openExternal(url);
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------------------
 
 app.on('second-instance', () => {
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  }
+  if (!win) return;
+  if (currentMode === 'side') { setView('full'); return; }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
+
+// Mac: clic sull'icona nel Dock con la finestra nascosta (vista laterale)
+app.on('activate', () => {
+  if (win && currentMode === 'side') setView('full');
 });
 
 app.whenReady().then(() => {
   if (!gotLock) return;
-  if (process.platform === 'darwin') {
+  if (IS_MAC) {
     // sul Mac serve il menu in alto: Esci (⌘Q) e Copia/Incolla nei campi di testo
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
   }
   const sharedDefaults = path.join(path.dirname(process.execPath), 'ptz-defaults.json');
   store = new Store(app.getPath('userData'), sharedDefaults, os.userInfo().username);
   I18N.setLang(I18N.resolve(store.settings.language, app.getLocale()));
-  if (store.settings.compact) normalBounds = store.settings.bounds;
   hub = new Hub({ store, getCamera: () => camera, getCamStatus: () => camStatus });
   hub.on('active', (id) => send('preset:active', id));
   hub.on('stopped', () => send('hotkey', { type: 'stop' }));
   control = new ControlServer(hub);
-  control.on('status', (st) => { apiStatus = st; send('api:status', st); });
+  control.on('status', (st) => { apiStatus = st; sendMain('api:status', st); });
   registerIpc();
   createWindow();
   startCamera();
@@ -551,7 +827,6 @@ app.whenReady().then(() => {
 });
 
 // In uscita si manda lo stop e si aspetta che parta prima di chiudere i socket
-let quitting = false;
 app.on('will-quit', (e) => {
   if (quitting || !gotLock) return;
   e.preventDefault();
@@ -566,16 +841,17 @@ app.on('will-quit', (e) => {
   const stop = c ? Promise.resolve().then(() => c.disconnect()).catch(() => {}) : Promise.resolve();
   Promise.race([stop, new Promise((r) => setTimeout(r, 1500))]).finally(() => app.exit(0));
 });
+app.on('before-quit', () => { closingApp = true; });
 
 // Un errore imprevisto non deve aprire finestre bloccanti durante l'evento
 process.on('uncaughtException', (err) => {
   try {
     fs.appendFileSync(path.join(app.getPath('userData'), 'errori.log'), `${new Date().toISOString()} ${err && err.stack ? err.stack : err}\n`);
   } catch (_) { /* ignora */ }
-  send('cam:log', t('main.internalError', { error: err && err.message ? err.message : err }));
+  sendMain('cam:log', t('main.internalError', { error: err && err.message ? err.message : err }));
 });
 process.on('unhandledRejection', (err) => {
-  send('cam:log', t('main.internalError', { error: err && err.message ? err.message : err }));
+  sendMain('cam:log', t('main.internalError', { error: err && err.message ? err.message : err }));
 });
 
 app.on('window-all-closed', () => app.quit());

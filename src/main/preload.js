@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('ptz', {
   recallPreset: (id, speed, opts) => ipcRenderer.invoke('cam:recallPreset', id, speed, opts),
   setActive: (id) => ipcRenderer.send('cam:setActive', id),
   setEditing: (on) => ipcRenderer.send('ui:editing', on),
+  reconnect: () => ipcRenderer.invoke('cam:reconnect'),
   apiInfo: () => ipcRenderer.invoke('api:info'),
   newApiToken: () => ipcRenderer.invoke('api:newToken'),
   copy: (text) => ipcRenderer.invoke('app:copy', text),
@@ -32,8 +33,15 @@ contextBridge.exposeInMainWorld('ptz', {
   testUrl: (url) => ipcRenderer.invoke('detect:testUrl', url),
 
   ackFrame: () => ipcRenderer.send('preview:ack'),
+  // viste: 'full' | 'compact' | 'side'; lato 'left' | 'right'
+  setView: (mode) => ipcRenderer.invoke('app:setView', mode),
+  setSide: (side) => ipcRenderer.invoke('app:setSide', side),
+  setOnTop: (on) => ipcRenderer.invoke('app:setOnTop', on),
   setCompact: (on) => ipcRenderer.invoke('app:setCompact', on),
+  expandSide: (on) => ipcRenderer.send('side:expand', on),
+  winControl: (what) => ipcRenderer.send('win:control', what),
   openDataFolder: () => ipcRenderer.invoke('app:openDataFolder'),
+  openProject: () => ipcRenderer.invoke('app:openProject'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   openUpdate: () => ipcRenderer.invoke('update:open'),
 
@@ -46,4 +54,7 @@ contextBridge.exposeInMainWorld('ptz', {
   onApiStatus: on('api:status'),
   onUpdateStatus: on('update:status'),
   onSettingsChanged: on('settings:changed'),
+  onPresetsChanged: on('presets:changed'),
+  onViewChanged: on('view:changed'),
+  onMaximized: on('win:maximized'),
 });

@@ -1,5 +1,5 @@
 'use strict';
-/* Pannello di PTZ Panel per OBS (Pannelli browser personalizzati).
+/* Pannello di PTZ Hub per OBS (Pannelli browser personalizzati).
  * Legge inquadrature e stato dal programma in tempo reale e gli manda i comandi:
  * la telecamera la comanda sempre e solo il programma. */
 (() => {
@@ -47,13 +47,28 @@
     gridSig = ''; // ridisegna con le nuove etichette
   }
 
+  const CAM_STATE = {
+    connected: 'cam.connected', connecting: 'cam.connecting', error: 'cam.noReply', disconnected: 'cam.noReply',
+  };
+
+  // miniatura: senza immagine salvata un segnaposto neutro con il numero grande
+  function thumb(p) {
+    const num = p.index <= 10 ? p.index % 10 : p.index;
+    if (!p.hasThumb) return `<div class="thumb placeholder"><span class="big">${num}</span></div>`;
+    return `<div class="thumb" style="background-image:url('${q(`presets/${encodeURIComponent(p.id)}/thumb`, { v: p.v })}')">`
+      + `<span class="badge">${num}</span></div>`;
+  }
+
   function render() {
     if (!state) return;
     applyLang(state.lang);
     const cam = state.camera || {};
-    $('#dot').className = `dot ${cam.state || ''}`;
-    $('#cam').textContent = cam.host || t('top.notConfigured');
-    $('#cam').title = cam.detail || '';
+    $('#dot').className = `dot ${cam.host ? (cam.state || '') : ''}`;
+    $('#cam').textContent = cam.host ? (cam.name || cam.host) : t('top.notConfigured');
+    $('#cam').title = cam.host ? `${cam.host}${cam.detail ? ` — ${cam.detail}` : ''}` : '';
+    const st = $('#camState');
+    st.textContent = cam.host && CAM_STATE[cam.state] ? t(CAM_STATE[cam.state]) : '';
+    st.className = `state${cam.state === 'error' || cam.state === 'disconnected' ? ' bad' : ''}`;
     if (state.editing) banner(t('dock.editing'));
     else if ($('#banner').textContent === t('dock.editing')) banner('');
 
@@ -64,11 +79,8 @@
       if (!state.presets.length) {
         grid.innerHTML = `<div class="empty">${esc(t('dock.empty'))}</div>`;
       } else {
-        grid.innerHTML = state.presets.map((p) => {
-          const img = p.hasThumb ? ` style="background-image:url('${q(`presets/${encodeURIComponent(p.id)}/thumb`, { v: p.v })}')"` : '';
-          return `<button class="card" data-id="${esc(p.id)}" title="${esc(p.name)}"><div class="thumb"${img}></div>`
-            + `<div class="meta"><span class="num">${p.index <= 10 ? p.index % 10 : '·'}</span><span class="name">${esc(p.name)}</span></div></button>`;
-        }).join('');
+        grid.innerHTML = state.presets.map((p) => `<button class="card" data-id="${esc(p.id)}" title="${esc(p.name)}">${thumb(p)}`
+          + `<div class="meta"><span class="name">${esc(p.name)}</span></div></button>`).join('');
       }
     }
     grid.querySelectorAll('.card').forEach((el) => el.classList.toggle('active', el.dataset.id === state.activeId));

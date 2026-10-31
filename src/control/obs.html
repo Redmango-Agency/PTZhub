@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PTZ Panel</title>
+  <title>PTZ Hub</title>
   <link rel="stylesheet" href="obs.css">
 </head>
 <body>
   <header class="bar">
     <span class="dot" id="dot"></span>
-    <span class="cam" id="cam">PTZ Panel</span>
+    <span class="cam" id="cam">PTZ Hub</span>
+    <span class="state" id="camState"></span>
     <span class="spacer"></span>
-    <button id="home" data-i18n="ctl.home">Home</button>
+    <button id="home" class="btn" data-i18n="ctl.home">Home</button>
     <button id="stop" class="stop" data-i18n="ctl.stop">STOP</button>
   </header>
 
@@ -20,14 +21,19 @@
   <main id="grid" class="grid"></main>
 
   <nav class="steps">
-    <button id="prev" data-i18n="dock.prev">◀</button>
-    <button id="next" data-i18n="dock.next">▶</button>
+    <button id="prev" class="btn" data-i18n="dock.prev">◀</button>
+    <button id="next" class="btn" data-i18n="dock.next">▶</button>
   </nav>
 
-  <details id="manual">
-    <summary data-i18n="dock.manual">Comandi manuali</summary>
+  <details id="manual" open>
+    <summary><span data-i18n="dock.manual">Comandi manuali</span>
+      <svg class="chev" width="12" height="8" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 6.5l5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
     <div class="manual">
-      <div id="joy" class="joy"><div class="knob"></div></div>
+      <div id="joy" class="joy">
+        <svg class="arrows" viewBox="0 0 124 124" aria-hidden="true"><path d="M62 10l-5 6h10zM62 114l-5-6h10zM10 62l6-5v10zM114 62l-6-5v10z"/></svg>
+        <div class="knob"></div>
+      </div>
       <div class="zoom">
         <button class="hold" data-z="1" data-i18n="ctl.tele">+</button>
         <button class="hold" data-z="-1" data-i18n="ctl.wide">−</button>
