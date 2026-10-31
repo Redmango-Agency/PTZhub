@@ -36,17 +36,9 @@ jobs:
         with:
           name: ptz-hub-windows
           path: |
-            dist/*.exe
-            dist/*.zip
-
-      - name: Pubblica la release (solo sui tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.exe
-            dist/*.zip
-          generate_release_notes: true
+            dist/PTZ-Hub-Setup-*.exe
+            dist/PTZ-Hub-*-portable-win-x64.zip
+          if-no-files-found: error
 
   mac:
     runs-on: macos-latest
@@ -70,7 +62,7 @@ jobs:
         run: npm test
 
       # Senza certificato Apple il dmg non è firmato: al primo avvio serve
-      # xattr -cr "/Applications/PTZ Panel.app" (vedi README)
+      # xattr -cr "/Applications/PTZ Hub.app" (vedi README)
       - name: Crea le immagini disco
         run: npx electron-builder --mac dmg --arm64 --x64 --publish never
         env:
@@ -79,13 +71,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ptz-hub-mac
-          path: dist/*.dmg
-
-      - name: Pubblica la release (solo sui tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.dmg
+          path: dist/PTZ-Hub-*.dmg
+          if-no-files-found: error
 
   streamdeck:
     runs-on: ubuntu-latest
@@ -114,9 +101,32 @@ jobs:
         with:
           name: ptz-hub-streamdeck
           path: streamdeck/dist/*.streamDeckPlugin
+          if-no-files-found: error
 
-      - name: Pubblica la release (solo sui tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+  # Una sola release, solo se tutte e tre le compilazioni sono andate bene
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, mac, streamdeck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Controlla la versione e prepara le note
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          test "$(node -p "require('./package.json').version")" = "$VERSION" || { echo "package.json non è alla versione $VERSION"; exit 1; }
+          node scripts/release-notes.js "$VERSION" > notes.md
+          cd out && ls -la && sha256sum * > SHA256SUMS.txt
+
+      - name: Pubblica la release
         uses: softprops/action-gh-release@v2
         with:
-          files: streamdeck/dist/*.streamDeckPlugin
+          name: PTZ Hub ${{ github.ref_name }}
+          body_path: notes.md
+          files: out/*
+          make_latest: true

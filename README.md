@@ -5,9 +5,25 @@
   </picture>
 </p>
 
-Free PTZ camera controller for network cameras, with OBS, Stream Deck and macro keyboard integration. Windows & macOS.
+<p align="center">
+  <b>Free PTZ camera controller for network cameras</b><br>
+  VISCA over IP · ONVIF · OBS dock · Stream Deck · macro keyboards — Windows &amp; macOS
+</p>
 
-**English** · [Italiano](README.it.md)
+<p align="center">
+  <a href="https://github.com/Redmango-Agency/PTZhub/releases/latest"><b>Download</b></a> ·
+  <a href="#features">Features</a> ·
+  <a href="#supported-cameras">Cameras</a> ·
+  <a href="#install">Install</a> ·
+  <b>English</b> · <a href="README.it.md">Italiano</a>
+</p>
+
+<p align="center">
+  <img alt="Platform: Windows and macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-0047C2">
+  <img alt="Protocols: VISCA over IP and ONVIF" src="https://img.shields.io/badge/protocols-VISCA%20over%20IP%20%7C%20ONVIF-3D8BFF">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0047C2">
+  <a href="https://redmango.agency/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=ptzhub"><img alt="Made by *redmango" src="https://img.shields.io/badge/made%20by-*redmango-C0392B"></a>
+</p>
 
 PTZ Hub gives you live preview, joystick, zoom and focus, and **presets** you recall with one click or one key. Built for events, conferences, churches and live streaming. *(Up to version 1.3 the program was called PTZ Panel.)*
 
@@ -82,7 +98,7 @@ npm test                # protocols with simulated cameras (VISCA, ONVIF), exter
 npm run dist:win        # installer and portable version in dist/
 ```
 
-GitHub Actions builds the Windows installer and the Mac dmgs on every `v*` tag and publishes them in Releases. See [CHANGELOG.md](CHANGELOG.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+GitHub Actions builds the Windows installer, the Mac dmgs and the Stream Deck plugin on every `v*` tag and publishes them in Releases, with the notes taken from the changelog. The plugin lives in [streamdeck/](streamdeck/). See [CHANGELOG.md](CHANGELOG.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```
 src/main/      camera drivers (visca.js, onvif.js), discovery, preview, per-account storage,
@@ -94,6 +110,10 @@ build/         icons, installer and packaging scripts
 
 ## Security
 Vulnerabilities: report them privately, see [SECURITY.md](SECURITY.md).
+
+## Credits
+PTZ Hub is designed and developed by [**\*redmango**](https://redmango.agency/?utm_source=github&utm_medium=referral&utm_campaign=ptzhub), a digital studio in Turin, Italy: websites and apps, advertising, AI systems and automation.
+Need a custom version, an integration with your production setup or support for another camera? Get in touch through [redmango.agency](https://redmango.agency/?utm_source=github&utm_medium=referral&utm_campaign=ptzhub).
 
 ## License
 [MIT](LICENSE) © Redmango S.r.l. — free to use, modify and redistribute, including commercial use.
