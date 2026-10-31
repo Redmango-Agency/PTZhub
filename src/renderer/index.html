@@ -55,8 +55,8 @@
     <div class="alert" id="offlineBanner" role="alert" hidden>
       <span data-icon="alert"></span>
       <span class="alert-text">
-        <b data-i18n="off.title"></b>
-        <span data-i18n="off.text"></span>
+        <b id="offTitle" data-i18n="off.title"></b>
+        <span id="offText" data-i18n="off.text"></span>
       </span>
       <button class="btn-secondary small" id="btnRetry" data-i18n="off.retry"></button>
       <button class="btn-dark small" id="btnCamSettings" data-i18n="off.settings"></button>
@@ -202,12 +202,12 @@
       <div class="s-scroll" id="sScroll">
 
         <!-- Telecamera -->
-        <div class="s-panel" data-panel="camera">
+        <div class="s-panel" data-panel="camera" id="sCamPanel">
           <div class="s-title"><h1 data-i18n="s.camera"></h1><span class="state-badge" id="sCamBadge"></span></div>
           <section class="group">
             <h2 data-i18n="s.link"></h2>
             <div class="list">
-              <div class="row">
+              <div class="row net-only">
                 <label for="sHost" class="row-label" data-i18n="s.host"></label>
                 <input id="sHost" class="field w180 right mono-num" data-i18n-placeholder="s.hostPlaceholder" autocomplete="off" spellcheck="false">
                 <button type="button" class="btn-tool" id="btnDiscover" data-i18n="s.discover"></button>
@@ -215,36 +215,49 @@
               <div class="row">
                 <label for="sProtocol" class="row-label" data-i18n="s.protocol"></label>
                 <span class="tag ok" id="sDetected" hidden data-i18n="s.detected"></span>
+                <span class="tag warn usb-cam-only" data-i18n="s.uvcBeta"></span>
                 <select id="sProtocol" class="field w240">
                   <option value="visca-udp">VISCA over IP — UDP 1259</option>
                   <option value="visca-tcp">VISCA over IP — TCP 5678</option>
                   <option value="visca-sony">Sony VISCA over IP — 52381</option>
                   <option value="onvif">ONVIF</option>
+                  <option value="usb" data-i18n="s.uvcOption"></option>
                 </select>
               </div>
-              <div class="row">
+              <div class="row usb-cam-only">
+                <label for="sUvcDevice" class="row-label" data-i18n="s.uvcDevice"></label>
+                <select id="sUvcDevice" class="field w300"></select>
+                <button type="button" class="btn-tool" id="btnUvcCheck" data-i18n="s.uvcCheck"></button>
+              </div>
+              <div class="row net-only">
                 <label for="sPort" class="row-label" data-i18n="s.port"></label>
                 <input id="sPort" class="field w90 right" type="number" min="1" max="65535">
               </div>
-              <div class="row" id="rowAddress">
+              <div class="row net-only" id="rowAddress">
                 <label for="sAddress" class="row-label" data-i18n="s.address"></label>
                 <input id="sAddress" class="field w90 right" type="number" min="1" max="7">
               </div>
             </div>
-            <div class="result-line" id="detectLine">
+            <div class="result-line net-only" id="detectLine">
               <span class="rl-icon" id="detectIcon"></span>
               <span class="rl-text" id="detectText"></span>
               <div class="spacer"></div>
               <button type="button" class="link-btn" id="btnDetect" data-i18n="s.detect"></button>
             </div>
-            <details class="details" id="detectDetails" hidden>
+            <details class="details net-only" id="detectDetails" hidden>
               <summary data-i18n="s.details"></summary>
               <div id="discoverOut" class="out"></div>
             </details>
-            <div class="found" id="foundList" hidden></div>
+            <div class="found net-only" id="foundList" hidden></div>
+            <div class="result-line usb-cam-only" id="uvcLine">
+              <span class="rl-icon" id="uvcIcon"></span>
+              <span class="rl-text" id="uvcText"></span>
+            </div>
+            <div id="uvcOut" class="out usb-cam-only"></div>
+            <p class="note usb-cam-only" data-i18n="s.uvcNote"></p>
           </section>
 
-          <section class="group">
+          <section class="group net-only">
             <h2 data-i18n="s.access"></h2>
             <div class="list">
               <div class="row">
@@ -522,14 +535,25 @@
             <input id="wzHost" class="field w220 mono-num" data-i18n-placeholder="s.hostPlaceholder" autocomplete="off" spellcheck="false">
             <button class="btn-tool" id="wzCheck" data-i18n="w.check"></button>
           </div>
+          <div class="wz-usb" id="wzUsb" hidden>
+            <div class="wz-row">
+              <b data-i18n="w.usbTitle"></b>
+              <span class="tag warn" data-i18n="s.uvcBeta"></span>
+              <span class="muted small ellipsis" data-i18n="w.usbSub"></span>
+            </div>
+            <div class="wz-devices" id="wzUsbDevices"></div>
+            <p class="note" data-i18n="s.uvcNote"></p>
+          </div>
           <div class="wz-checks" id="wzChecks" hidden>
             <span class="caps" id="wzChecksTitle"></span>
             <div class="wz-check" id="wzCheckCmd"></div>
             <div class="wz-check" id="wzCheckPos"></div>
             <div class="wz-check" id="wzCheckVideo"></div>
+            <p class="wz-check-note" id="wzCheckNote" hidden></p>
           </div>
           <div class="wz-actions">
             <button class="link-btn" id="wzManualBtn" data-i18n="w.manual"></button>
+            <button class="link-btn" id="wzUsbBtn" data-i18n="w.usbBtn"></button>
             <div class="spacer"></div>
             <button class="btn-primary big" id="wzUse" data-i18n="w.use" disabled></button>
           </div>
@@ -654,6 +678,7 @@
   </dialog>
 
   <script src="../shared/i18n.js"></script>
+  <script src="../shared/uvc-caps.js"></script>
   <script src="common.js"></script>
   <script src="app.js"></script>
 </body>

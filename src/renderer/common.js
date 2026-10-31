@@ -10,8 +10,13 @@
   const presetNum = (i) => (i < 10 ? HOTKEYS[i] : String(i + 1));
 
   const PROTOCOL_LABEL = {
-    'visca-udp': 'VISCA UDP', 'visca-tcp': 'VISCA TCP', 'visca-sony': 'Sony VISCA', onvif: 'ONVIF',
+    'visca-udp': 'VISCA UDP', 'visca-tcp': 'VISCA TCP', 'visca-sony': 'Sony VISCA', onvif: 'ONVIF', usb: 'USB (UVC)',
   };
+
+  // camera configurata: indirizzo IP per la rete, dispositivo scelto per la USB
+  const camConfigured = (cam) => !!cam && (cam.protocol === 'usb' ? !!(cam.usbDeviceId || cam.usbLabel) : !!cam.host);
+  // dove si trova la camera, da mostrare accanto al nome: l'IP oppure «USB»
+  const camAddress = (cam) => (cam && cam.protocol === 'usb' ? 'USB' : (cam && cam.host) || '');
 
   // Icone (SVG in linea, colore dal testo: currentColor)
   const S = (w, vb, body, extra = '') => `<svg width="${w}" height="${w}" viewBox="${vb}" aria-hidden="true" focusable="false"${extra}>${body}</svg>`;
@@ -100,6 +105,6 @@
   }
 
   root.UI = {
-    esc, HOTKEYS, presetNum, PROTOCOL_LABEL, ICONS, thumbHtml, applyI18n, cameraName, camLevel,
+    esc, HOTKEYS, presetNum, PROTOCOL_LABEL, ICONS, thumbHtml, applyI18n, cameraName, camLevel, camConfigured, camAddress,
   };
 }(typeof self !== 'undefined' ? self : this));

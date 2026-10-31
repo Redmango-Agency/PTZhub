@@ -4,9 +4,12 @@
 // Uso: xvfb-run electron test/smoke-main.js <cartellaOutput>
 //  - PTZ_SMOKE=wizard (con XDG_CONFIG_HOME vuota): primo avvio guidato e Regia senza inquadrature
 //  - PTZ_UPDATE_REPO / PTZ_UPDATE_API / PTZ_UPDATE_DELAY_MS: avviso di nuova versione
+//  - PTZ_SMOKE=usb (con XDG_CONFIG_HOME vuota e la camera finta di Chromium:
+//    --use-fake-device-for-media-stream --use-fake-ui-for-media-stream): camera comandata via USB
+//  - PTZ_SMOKE=usb-noptz: come sopra, ma senza il permesso pan/tilt/zoom (camera che non li accetta)
 const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 
 const outDir = process.argv[process.argv.length - 1];
 const MODE = process.env.PTZ_SMOKE || 'main';
@@ -95,6 +98,8 @@ async function run(win) {
   try {
     if (MODE === 'wizard') await runWizard(win, js, waitFor, result);
     else if (MODE === 'startup') await runStartup(win, js, waitFor, result);
+    else if (MODE === 'usb') await runUsb(win, js, waitFor, result);
+    else if (MODE === 'usb-noptz') await runUsbNoPtz(win, js, waitFor, result);
     else await runMain(win, js, waitFor, result);
     result.untranslated = await js(UNTRANSLATED);
     result.lang = await js('document.documentElement.lang');
@@ -103,7 +108,13 @@ async function run(win) {
   }
   result.consoleErrors = logs.filter((l) => /error|uncaught|failed/i.test(l));
   fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify({ result, logs }, null, 2));
-  app.quit();
+  if (MODE === 'usb') {
+    // chiusura dalla finestra principale: il programma esce anche con la finestra nascosta USB aperta
+    win.close();
+    setTimeout(() => app.exit(3), 8000);
+  } else {
+    app.quit();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -492,6 +503,282 @@ async function runStartup(win, js, waitFor, result) {
   await js("window.ptz.setView('full')");
   await sleep(1200);
   result.afterFull = { visible: win.isVisible(), bounds: win.getBounds(), side: others().length };
+}
+
+// ---------------------------------------------------------------------------
+// Camera comandata via USB (camera finta di Chromium, che espone pan/tilt/zoom 100–400)
+
+const uvcWindow = () => BrowserWindow.getAllWindows().find((w) => /uvc\.html/.test(w.webContents.getURL()));
+
+// apre l'elenco USB del primo avvio e prova la prima videocamera
+async function wizardPickUsb(win, js, waitFor, result) {
+  win.setBounds({ x: 40, y: 30, width: 1280, height: 820 });
+  await sleep(1200);
+  result.wizardOpen = await js("document.body.classList.contains('wizard-open')");
+  await waitFor("!document.querySelector('#wzSearchIcon .spinner')", 40000);
+  result.searchTitle = await js("document.querySelector('#wzSearchTitle').textContent");
+  if (await js("document.querySelector('#wzUsb').hidden")) await js("document.querySelector('#wzUsbBtn').click()");
+  await waitFor("document.querySelectorAll('#wzUsbDevices .device').length > 0", 8000);
+  result.usbDevices = await js("[...document.querySelectorAll('#wzUsbDevices .device')].map((d) => d.innerText.replace(/\\s+/g, ' ').trim())");
+  await js("document.querySelector('#wzUsbDevices .device').click()");
+  await waitFor("!!document.querySelector('#wzCheckCmd .r') && !document.querySelector('#wzCheckCmd .spinner')", 10000);
+  result.usbChecks = await js("[...document.querySelectorAll('.wz-check')].map((e) => e.innerText.replace(/\\s+/g, ' ').trim())");
+  result.usbCheckNote = await js("document.querySelector('#wzCheckNote').hidden ? '' : document.querySelector('#wzCheckNote').textContent");
+  result.usbUseEnabled = await js("!document.querySelector('#wzUse').disabled");
+}
+
+async function runUsb(win, js, waitFor, result) {
+  await wizardPickUsb(win, js, waitFor, result);
+  await shot(win, 'u1-primo-avvio-usb');
+  result.overflowWizardUsb = await js(OVERFLOW);
+  await js("document.querySelector('.wz-scroll').scrollTop = 10000");
+  await sleep(200);
+  await shot(win, 'u1b-primo-avvio-usb-esito');
+  await js("document.querySelector('#wzUse').click()");
+  await waitFor("document.querySelector('.wz-step[data-step=\"2\"]').classList.contains('on')", 5000);
+  await waitFor("!document.querySelector('#wzLive').hidden", 10000);
+  await sleep(700);
+  result.step2 = await js("document.querySelector('#wzVideoTitle').textContent + ' | live=' + !document.querySelector('#wzLive').hidden");
+  await shot(win, 'u2-video-usb');
+  await js("document.querySelector('#wzContinue').click()");
+  await sleep(400);
+  result.summary = await js("document.querySelector('#wzSummary').innerText");
+  await shot(win, 'u3-pronto');
+  await js("document.querySelector('#wzOpen').click()");
+  await waitFor("document.querySelector('#camStatus').classList.contains('ok')", 10000);
+  await sleep(1200);
+  result.camLabel = await js("document.querySelector('#camLabel').textContent + ' | ' + document.querySelector('#camDetail').textContent");
+  result.previewLive = await js("document.querySelector('#liveBadge').classList.contains('on')");
+  const uw = uvcWindow();
+  result.hiddenWindow = uw ? { visible: uw.isVisible(), url: path.basename(uw.webContents.getURL()) } : null;
+  if (!uw) throw new Error('finestra nascosta USB assente');
+  // valori letti direttamente dal track della finestra nascosta (quello che la camera ha ricevuto)
+  const trk = () => uw.webContents.executeJavaScript('(() => { const s = track.getSettings(); return { pan: s.pan, tilt: s.tilt, zoom: s.zoom }; })()', true);
+  result.trackCaps = await uw.webContents.executeJavaScript('(() => { const c = track.getCapabilities(); return { pan: c.pan, tilt: c.tilt, zoom: c.zoom }; })()', true);
+  await shot(win, 'u4-regia-usb');
+  result.overflowRegia = await js(OVERFLOW);
+
+  // movimento continuo: destra e su, poi zoom stretto
+  const t0 = await trk();
+  await js("window.ptz.cmd('move', 1, 0.5)");
+  await sleep(600);
+  await js("window.ptz.cmd('move', 0, 0)");
+  await js("window.ptz.cmd('zoom', 1)");
+  await sleep(500);
+  await js("window.ptz.cmd('zoom', 0)");
+  await sleep(150);
+  const t1 = await trk();
+  result.move = { before: t0, after: t1, ok: t1.pan > t0.pan && t1.tilt > t0.tilt && t1.zoom > t0.zoom };
+  // STOP: dopo il clic la camera non riceve più incrementi
+  await js("window.ptz.cmd('move', 1, 0)");
+  await sleep(250);
+  await js("document.querySelector('#btnStop').click()");
+  await sleep(100);
+  const s1 = await trk();
+  await sleep(600);
+  const s2 = await trk();
+  result.stop = { atStop: s1.pan, later: s2.pan, ok: s1.pan === s2.pan && s1.pan > t1.pan };
+
+  // due inquadrature dall'editor
+  await js("document.querySelector('#btnSavePreset').click()");
+  await sleep(600);
+  await js("document.querySelector('#edName').value='USB largo'; document.querySelector('#edSave').click()");
+  await sleep(1500);
+  await js("document.querySelector('#btnSavePreset').click()");
+  await sleep(500);
+  await js("window.ptz.cmd('move', -1, -0.6)");
+  await sleep(500);
+  await js("window.ptz.cmd('move', 0, 0)");
+  await js("window.ptz.cmd('zoom', -1)");
+  await sleep(300);
+  await js("window.ptz.cmd('zoom', 0)");
+  await sleep(200);
+  await js("document.querySelector('#edName').value='USB stretto'; document.querySelector('#edSave').click()");
+  await sleep(1500);
+  const saved = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'preset.json'), 'utf8')).presets;
+  result.presets = saved.map((p) => ({ name: p.name, protocol: p.protocol, pos: p.pos, thumb: !!p.thumb }));
+  const [A, B] = saved;
+  const at = (p, v) => v.pan === p.pos.pan && v.tilt === p.pos.tilt && v.zoom === p.pos.zoom;
+  await shot(win, 'u5-inquadrature-usb');
+
+  // richiamo con il tasto 1: la camera torna esattamente su A
+  await js("window.dispatchEvent(new KeyboardEvent('keydown', {key:'1', code:'Digit1'}))");
+  await waitFor("document.querySelector('.preset.active .name')?.textContent === 'USB largo'", 8000);
+  const rA = await trk();
+  result.recallA = { expected: A.pos, got: rA, ok: at(A, rA) };
+  // richiamo dal pannello Inquadrature (clic) su B
+  await js("document.querySelectorAll('.preset')[1].click()");
+  await waitFor("document.querySelector('.preset.active .name')?.textContent === 'USB stretto'", 8000);
+  const rB = await trk();
+  result.recallB = { expected: B.pos, got: rB, ok: at(B, rB) };
+
+  // Home: pan e tilt al centro della corsa (la camera finta non ha lo 0), zoom al minimo
+  await js("document.querySelector('#btnHome').click()");
+  await sleep(2500);
+  result.home = await trk();
+
+  // STOP (Esc) durante un richiamo lento: si ferma a metà e «USB largo» non diventa attiva
+  const setRecallSpeed = (v) => js(`(() => { const r = document.querySelector('#recallSpeed'); r.value = '${v}'; r.dispatchEvent(new Event('input')); })()`);
+  await setRecallSpeed(0.1);
+  await js("window.dispatchEvent(new KeyboardEvent('keydown', {key:'1', code:'Digit1'}))");
+  await sleep(1200);
+  result.arrivingDuringRecall = await js("document.querySelector('.preset.busy .name')?.textContent || ''");
+  await js("window.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', code:'Escape'}))");
+  await sleep(150);
+  const m1 = await trk();
+  await sleep(800);
+  const m2 = await trk();
+  result.stopDuringRecall = {
+    from: result.home,
+    stoppedAt: m1,
+    still: m1.pan === m2.pan && m1.tilt === m2.tilt && m1.zoom === m2.zoom,
+    moved: m1.pan !== result.home.pan || m1.tilt !== result.home.tilt,
+    notAtA: !at(A, m2),
+    active: await js("document.querySelector('.preset.active .name')?.textContent || ''"),
+    arriving: await js("document.querySelectorAll('.preset.busy').length"),
+  };
+  await setRecallSpeed(0.7);
+  await sleep(600);
+
+  // impostazioni › telecamera: USB scelta, esito della verifica
+  await js("document.querySelector('#btnSettings').click()");
+  await waitFor("!document.querySelector('#uvcIcon .spinner') && document.querySelector('#uvcOut').children.length > 0", 10000);
+  await sleep(300);
+  result.settingsUsb = {
+    protocol: await js("document.querySelector('#sProtocol').value"),
+    device: await js("document.querySelector('#sUvcDevice').selectedOptions[0]?.textContent"),
+    verdict: await js("document.querySelector('#uvcText').textContent"),
+    lines: await js("[...document.querySelectorAll('#uvcOut .line')].map((l) => l.textContent)"),
+    netRowsHidden: await js("getComputedStyle(document.querySelector('#sHost').closest('.row')).display === 'none'"),
+    slotDisabled: await js("document.querySelector('#sModeSlot').disabled"),
+  };
+  await shot(win, 'u6-impostazioni-usb');
+  result.overflowSettingsUsb = await js(OVERFLOW);
+  await js("document.querySelector('#btnCancelSettings').click()");
+  await sleep(400);
+  result.discardAsked = await js("document.querySelector('#dlgConfirm').open");
+  if (result.discardAsked) { await js("document.querySelector('#cfOk').click()"); await sleep(300); }
+
+  // vista compatta: richiamo dalla colonna
+  await js("document.querySelector('#viewSeg button[data-view=\"compact\"]').click()");
+  await sleep(1200);
+  await js("document.querySelectorAll('#compactList .p-row')[0].click()");
+  await waitFor("document.querySelector('#compactList .p-row.active .p-name')?.textContent === 'USB largo'", 8000);
+  result.compactRecall = at(A, await trk());
+  result.compactName = await js("document.querySelector('#cName').textContent");
+  await shot(win, 'u7-compatta-usb');
+  await js("document.querySelector('#cOpen').click()");
+  await sleep(1000);
+
+  // pannello OBS e indirizzi web (Stream Deck): stesso centro operativo
+  const info = await js('window.ptz.apiInfo()');
+  const dock = new BrowserWindow({ width: 380, height: 800, show: true, webPreferences: { sandbox: true } });
+  await dock.loadURL(info.obsUrl);
+  await sleep(1500);
+  result.dockCam = await dock.webContents.executeJavaScript("document.querySelector('#cam').textContent + ' | ' + document.querySelector('#camState').textContent");
+  await dock.webContents.executeJavaScript("document.querySelectorAll('.card')[1].click()");
+  await sleep(1800);
+  result.dockRecall = at(B, await trk());
+  await shot(dock, 'u8-pannello-obs-usb');
+  dock.destroy();
+  const get = (p) => new Promise((resolve) => {
+    require('http').get(`${info.base}/api/${p}?k=${info.token}`, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve(d)); });
+  });
+  await get('recall/1');
+  await sleep(1800);
+  result.urlRecall = at(A, await trk());
+  const n0 = await trk();
+  await get('nudge/right');
+  await sleep(600);
+  await get('zoom/in');
+  await sleep(600);
+  const n1 = await trk();
+  result.urlNudge = { before: n0, after: n1, ok: n1.pan > n0.pan && n1.zoom > n0.zoom };
+
+  // vista Laterale: la Regia si nasconde e ferma l'anteprima USB, i comandi passano dalla finestra nascosta
+  await js("document.querySelector('#viewSeg button[data-view=\"side\"]').click()");
+  await sleep(1800);
+  const side = BrowserWindow.getAllWindows().find((w) => /side\.html/.test(w.webContents.getURL()));
+  result.sideWindow = !!side;
+  result.previewStoppedInSide = await js("!document.querySelector('#usbVideo').srcObject");
+  if (side) {
+    const sjs = (code) => side.webContents.executeJavaScript(code, true);
+    await sjs("document.querySelector('#tab').dispatchEvent(new MouseEvent('mouseenter'))");
+    await sleep(700);
+    result.sideCam = await sjs("document.querySelector('#pCam').textContent");
+    await sjs("document.querySelectorAll('#pList .p-row')[1].click()");
+    await sleep(2200);
+    result.sideRecall = at(B, await trk());
+    await shot(side, 'u11-laterale-usb');
+    await sjs("document.querySelector('#sFull').click()");
+    await sleep(1500);
+  }
+
+  // camera «scollegata»: il track finisce e getUserMedia non la trova più
+  const uwjs = (code) => uw.webContents.executeJavaScript(code, true);
+  const bannerNow = () => js("document.querySelector('#offTitle').textContent + ' | ' + document.querySelector('#offText').textContent + ' | pill: ' + document.querySelector('#camDetail').textContent + ' | ' + document.querySelector('#camStatus').className");
+  await uwjs("window.realGum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Requested device not found', 'NotFoundError')); track.dispatchEvent(new Event('ended')); true");
+  await waitFor("!document.querySelector('#offlineBanner').hidden", 8000);
+  await sleep(300);
+  result.unplug = await bannerNow();
+  await shot(win, 'u9-usb-scollegata');
+  // occupata da un altro programma (su Windows di solito OBS): NotReadableError
+  await uwjs("navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Could not start video source', 'NotReadableError')); true");
+  await waitFor("document.querySelector('#offTitle').textContent.includes('occupata')", 9000);
+  await sleep(300);
+  result.busy = await bannerNow();
+  await shot(win, 'u10-usb-occupata');
+  // torna disponibile: con «dispositivi cambiati» si ricollega subito, senza aspettare il tentativo
+  await uwjs("navigator.mediaDevices.getUserMedia = window.realGum; navigator.mediaDevices.dispatchEvent(new Event('devicechange')); true");
+  const tRe = Date.now();
+  await waitFor("document.querySelector('#offlineBanner').hidden && document.querySelector('#camStatus').classList.contains('ok')", 12000, 100);
+  result.reconnectMs = Date.now() - tRe;
+  result.reconnected = await js("document.querySelector('#camStatus').classList.contains('ok')");
+  await js("document.querySelectorAll('.preset')[1].click()");
+  await sleep(2200);
+  result.recallAfterReconnect = at(B, await trk());
+}
+
+async function runUsbNoPtz(win, js, waitFor, result) {
+  await wizardPickUsb(win, js, waitFor, result);
+  await shot(win, 'n1-primo-avvio-senza-ptz');
+  result.overflowWizard = await js(OVERFLOW);
+  // si sceglie lo stesso «USB» dalle Impostazioni: l'esito e l'avviso spiegano cosa fare
+  await js("document.querySelector('#wzSkip').click()");
+  await sleep(600);
+  await js("const s = document.querySelector('#sProtocol'); s.value = 'usb'; s.dispatchEvent(new Event('change'))");
+  await waitFor("!document.querySelector('#uvcIcon .spinner') && document.querySelector('#uvcText').textContent.length > 0 && !!document.querySelector('#uvcIcon svg')", 10000);
+  await sleep(300);
+  result.settingsVerdict = await js("document.querySelector('#uvcText').textContent");
+  await shot(win, 'n2-impostazioni-senza-ptz');
+  result.overflowSettings = await js(OVERFLOW);
+  await js("document.querySelector('#btnSaveSettings').click()");
+  await sleep(800);
+  await waitFor("!document.querySelector('#offlineBanner').hidden", 9000);
+  result.banner = await js("document.querySelector('#offTitle').textContent + ' | ' + document.querySelector('#offText').textContent");
+  result.pill = await js("document.querySelector('#camLabel').textContent + ' | ' + document.querySelector('#camDetail').textContent");
+  result.hiddenWindowClosedTrack = await (async () => {
+    const uw = uvcWindow();
+    return uw ? uw.webContents.executeJavaScript('track === null', true) : 'nessuna finestra';
+  })();
+  // i comandi non fanno nulla e non danno errori; salvare un'inquadratura lo spiega
+  await js("window.ptz.cmd('move', 1, 1); window.ptz.cmd('zoom', 1); window.ptz.cmd('focus', 1); window.ptz.cmd('focusAuto', false); window.ptz.cmd('onePush'); window.ptz.cmd('home'); window.ptz.cmd('stop')");
+  await sleep(300);
+  await js("document.querySelector('#btnSavePreset').click()");
+  await sleep(700);
+  await js("document.querySelector('#edSave').click()");
+  await sleep(1200);
+  result.saveToast = await js("[...document.querySelectorAll('.toast .tt')].map((x) => x.textContent)");
+  await shot(win, 'n3-regia-senza-ptz');
+  await js("document.querySelector('#edCancel').click()");
+  await sleep(300);
+}
+
+// camera che non accetta pan/tilt/zoom: il permesso per il controllo PTZ viene negato
+if (MODE === 'usb-noptz') {
+  app.whenReady().then(() => {
+    session.defaultSession.setPermissionCheckHandler((_wc, perm, _origin, details) => !(perm === 'media' && !(details && details.mediaType)));
+  });
 }
 
 require('../src/main/main.js');

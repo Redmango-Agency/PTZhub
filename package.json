@@ -1,11 +1,11 @@
 {
   "name": "ptz-hub",
   "version": "1.4.0",
-  "description": "Pannello di controllo per telecamere PTZ via rete (VISCA over IP, ONVIF): anteprima, joystick e inquadrature per ogni account Windows",
+  "description": "Pannello di controllo per telecamere PTZ via rete (VISCA over IP, ONVIF) o USB (UVC, in prova): anteprima, joystick e inquadrature per ogni account Windows",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test/visca.test.js && node test/onvif.test.js && node test/control.test.js && node test/hub.test.js && node test/updates.test.js",
+    "test": "node test/visca.test.js && node test/onvif.test.js && node test/control.test.js && node test/hub.test.js && node test/uvc.test.js && node test/updates.test.js",
     "rileva": "node tools/rileva-camera.js",
     "dist:win": "electron-builder --win --x64 --publish never",
     "ffmpeg:win": "node scripts/fetch-ffmpeg.js win32-x64"
@@ -111,7 +111,7 @@
       "minimumSystemVersion": "11.0",
       "extendInfo": {
         "NSLocalNetworkUsageDescription": "PTZ Hub comanda le telecamere sulla rete locale. / PTZ Hub controls cameras on the local network.",
-        "NSCameraUsageDescription": "Anteprima di una telecamera collegata via USB. / Preview of a camera connected via USB."
+        "NSCameraUsageDescription": "Anteprima e comandi di una telecamera collegata via USB. / Preview and control of a camera connected via USB."
       },
       "extraResources": [
         {

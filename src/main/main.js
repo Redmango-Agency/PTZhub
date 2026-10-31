@@ -9,6 +9,8 @@ const {
 const { Store, DEFAULT_PORTS, VIEW_MODES } = require('./store');
 const { ViscaCamera } = require('./visca');
 const { OnvifCamera } = require('./onvif');
+const { UvcCamera } = require('./uvc');
+const { UvcLink } = require('./uvc-link');
 const { Preview, testUrl } = require('./preview');
 const probe = require('./probe');
 const { Hub } = require('./hub');
@@ -100,6 +102,19 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // Camera
 
 function createCamera(cfg) {
+  if (cfg.protocol === 'usb') {
+    // camera collegata con il cavo USB (UVC, in prova): comandi da una finestra nascosta.
+    // Il permesso per pan/tilt/zoom arriva da Electron senza bisogno di un gestore dei permessi
+    // (nessuno è impostato: Electron concede la fotocamera e anche il suo controllo PTZ).
+    if (!cfg.usbDeviceId && !cfg.usbLabel) return null;
+    return new UvcCamera({
+      deviceId: cfg.usbDeviceId || '',
+      label: cfg.usbLabel || '',
+      invertPan: !!cfg.invertPan,
+      invertTilt: !!cfg.invertTilt,
+      link: new UvcLink(),
+    });
+  }
   if (!cfg.host) return null;
   const port = Number(cfg.port) || DEFAULT_PORTS[cfg.protocol] || 1259;
   const common = { host: cfg.host.trim(), port, invertPan: !!cfg.invertPan, invertTilt: !!cfg.invertTilt };
@@ -517,6 +532,8 @@ function createWindow() {
   win.on('closed', () => {
     win = null;
     destroySideWindow(); // senza la finestra principale l'app si chiude
+    // anche se resta aperta la finestra nascosta della camera USB
+    if (!quitting && !closingApp) app.quit();
   });
   // se l'interfaccia va in crash, la testa si ferma e la pagina si ricarica
   win.webContents.on('render-process-gone', () => {

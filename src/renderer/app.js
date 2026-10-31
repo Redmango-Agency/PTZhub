@@ -3,15 +3,16 @@
 
 const { t } = window.I18N;
 const {
-  esc, HOTKEYS, presetNum, PROTOCOL_LABEL, ICONS, thumbHtml, cameraName, camLevel,
+  esc, HOTKEYS, presetNum, PROTOCOL_LABEL, ICONS, thumbHtml, cameraName, camLevel, camConfigured, camAddress,
 } = window.UI;
+const UVC = window.UVC;
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 const DEFAULT_PORTS = { 'visca-udp': 1259, 'visca-tcp': 5678, 'visca-sony': 52381, onvif: 80 };
 const PROTOCOL_DESC = {
-  'visca-udp': 'VISCA over IP, UDP', 'visca-tcp': 'VISCA over IP, TCP', 'visca-sony': 'Sony VISCA over IP', onvif: 'ONVIF',
+  'visca-udp': 'VISCA over IP, UDP', 'visca-tcp': 'VISCA over IP, TCP', 'visca-sony': 'Sony VISCA over IP', onvif: 'ONVIF', usb: 'USB (UVC)',
 };
 
 let settings = null;
@@ -118,7 +119,11 @@ let offlineTimer = null;
 
 function camStateText() {
   const c = settings.camera;
-  if (!c.host) return t('cam.openSettings');
+  if (!camConfigured(c)) return t('cam.openSettings');
+  // camera USB: la causa conta più di «non risponde»
+  if (camState.code === 'noptz') return t('cam.noPtz');
+  if (camState.code === 'busy' && camState.state !== 'connected') return t('cam.busy');
+  if (camState.code === 'zoomonly' && camState.state === 'connected') return t('cam.zoomOnly');
   return {
     connected: t('cam.connected'),
     connecting: t('cam.connecting'),
@@ -129,38 +134,51 @@ function camStateText() {
 
 function renderCamStatus() {
   const c = settings.camera;
-  const lvl = camLevel(camState, c.host);
+  const on = camConfigured(c);
+  const lvl = camLevel(camState, on);
   const pill = $('#camStatus');
   pill.className = `status-pill ${lvl}`;
   pill.querySelector('.dot').className = `dot ${lvl}`;
-  $('#camLabel').textContent = c.host ? `${cameraName(c)} · ${c.host}` : t('top.notConfigured');
+  $('#camLabel').textContent = on ? `${cameraName(c)} · ${camAddress(c)}` : t('top.notConfigured');
   const stateTxt = camStateText();
   $('#camDetail').textContent = document.body.classList.contains('editing') && camState.state === 'connected' && c.name
     ? `${PROTOCOL_DESC[c.protocol] || ''} · ${stateTxt}` : stateTxt;
   pill.title = camState.detail || '';
   // vista compatta
   $('#cDot').className = `dot ${lvl}`;
-  $('#cName').textContent = c.host ? (c.name || c.host) : t('top.notConfigured');
-  $('#cName').title = c.host ? `${cameraName(c)} · ${c.host} — ${stateTxt}` : '';
+  $('#cName').textContent = on ? (c.name || camAddress(c)) : t('top.notConfigured');
+  $('#cName').title = on ? `${cameraName(c)} · ${camAddress(c)} — ${stateTxt}` : '';
   // impostazioni
   const badge = $('#sCamBadge');
   badge.className = `state-badge ${{ ok: 'ok', wait: 'wait', bad: 'bad', off: 'off' }[lvl]}`;
-  badge.textContent = c.host ? {
+  badge.textContent = on ? {
     ok: t('cam.badgeOk'), wait: t('cam.badgeWait'), bad: t('cam.badgeBad'), off: '',
   }[lvl] : t('cam.badgeOff');
   updateOffline();
 }
 
+// testi dell'avviso: per la camera USB si spiega la causa (occupata, senza movimenti, scollegata)
+function renderOfflineText() {
+  let k = ['off.title', 'off.text'];
+  if (camState.code === 'noptz') k = ['off.noPtzTitle', 'off.noPtzText'];
+  else if (camState.code === 'busy') k = ['off.busyTitle', 'off.busyText'];
+  else if (settings.camera.protocol === 'usb') k = ['off.usbTitle', 'off.usbText'];
+  $('#offTitle').textContent = t(k[0]);
+  $('#offText').textContent = t(k[1]);
+}
+
 function showOffline(on) {
+  if (on) renderOfflineText();
   $('#offlineBanner').hidden = !on;
   document.body.classList.toggle('offline', !!on);
   renderPreviewState();
 }
 
 function updateOffline() {
-  const host = settings.camera.host;
+  const configured = camConfigured(settings.camera);
   const st = camState.state;
-  if (!host || st === 'connected') {
+  if (!$('#offlineBanner').hidden) renderOfflineText();
+  if (!configured || st === 'connected') {
     if (st === 'connected') camFirstAttempt = false;
     clearTimeout(offlineTimer);
     offlineTimer = null;
@@ -172,7 +190,7 @@ function updateOffline() {
   if (!offlineTimer && $('#offlineBanner').hidden) {
     offlineTimer = setTimeout(() => {
       offlineTimer = null;
-      if (camState.state !== 'connected' && settings.camera.host) showOffline(true);
+      if (camState.state !== 'connected' && camConfigured(settings.camera)) showOffline(true);
     }, 3000);
   }
 }
@@ -500,7 +518,7 @@ function setPreviewMsg(title, sub = '', cls = '') {
   $('#previewSub').textContent = sub || '';
 }
 
-const camOffline = () => !!settings.camera.host && !$('#offlineBanner').hidden;
+const camOffline = () => camConfigured(settings.camera) && !$('#offlineBanner').hidden;
 
 function renderPreviewState() {
   if (!settings) return;
@@ -1017,6 +1035,10 @@ function fillSettingsForm() {
   $('#btnDetect').textContent = t('s.detect');
   $('#rtspOut').innerHTML = '';
   setLine($('#rtspIcon'), $('#rtspText'), '', t('r.hint'));
+  // camera USB: l'elenco si legge ogni volta (la camera può essere stata scollegata)
+  $('#sUvcDevice').innerHTML = '';
+  $('#uvcOut').innerHTML = '';
+  setLine($('#uvcIcon'), $('#uvcText'), '', t('s.uvcHint'));
   $('#sLanguage').value = settings.language || 'auto';
   $('#xEnable').checked = !!settings.api.enabled;
   $('#xPort').value = settings.api.port || 8765;
@@ -1038,6 +1060,7 @@ function fillSettingsForm() {
   renderCamStatus();
   renderVideoBadge();
   if (p.source === 'usb') listUsbDevices(p.usbDeviceId);
+  if (c.protocol === 'usb') listUvcDevices(c.usbDeviceId, c.usbLabel).then(() => checkUvc());
 }
 
 function updateFormVisibility() {
@@ -1052,6 +1075,10 @@ function updateFormVisibility() {
   $('#sAddress').disabled = onvif;
   $('#rowAddress').style.opacity = onvif ? '.55' : '';
   $('#sDetected').hidden = !detectedProtocol || $('#sProtocol').value !== detectedProtocol;
+  // camera USB: niente IP, porta e accesso; le inquadrature si salvano nel programma
+  const usb = $('#sProtocol').value === 'usb';
+  $('#sCamPanel').classList.toggle('usb-mode', usb);
+  $('#sModeSlot').disabled = usb;
 }
 
 segBind($('#sSource'), (v) => {
@@ -1063,18 +1090,35 @@ $$('input[name="presetMode"]').forEach((r) => r.addEventListener('change', () =>
   if ($('#sModeSlot').checked) toast(t('s.slotWarn', { n: $('#sSlotBase').value }), 'warn', 7000);
 }));
 $('#sProtocol').addEventListener('change', () => {
-  $('#sPort').value = DEFAULT_PORTS[$('#sProtocol').value];
+  const v = $('#sProtocol').value;
+  if (DEFAULT_PORTS[v]) $('#sPort').value = DEFAULT_PORTS[v];
+  if (v === 'usb') {
+    if ($('#sModeSlot').checked) {
+      $('#sModeApp').checked = true;
+      toast(t('s.uvcNoSlot'), 'warn', 6000);
+    }
+    listUvcDevices(settings.camera.usbDeviceId, settings.camera.usbLabel).then(() => checkUvc());
+  }
   updateFormVisibility();
 });
 segBind($('#sSide'));
 
+// videocamere collegate al PC. I nomi a volte restano nascosti finché non si apre una camera
+async function videoDevices() {
+  const list = async () => (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  let devs = await list();
+  if (!devs.length || devs.every((d) => !d.label)) {
+    const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }).catch(() => null);
+    if (tmp) tmp.getTracks().forEach((tr) => tr.stop());
+    devs = await list();
+  }
+  return devs;
+}
+
 async function listUsbDevices(selected) {
   const sel = $('#sUsb');
   try {
-    // serve un primo accesso per leggere i nomi dei dispositivi
-    const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }).catch(() => null);
-    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
-    if (tmp) tmp.getTracks().forEach((tr) => tr.stop());
+    const devs = await videoDevices();
     sel.innerHTML = devs.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || t('s.usbCamera', { n: i + 1 }))}</option>`).join('')
       || `<option value="">${esc(t('s.usbNone'))}</option>`;
     if (selected) sel.value = selected;
@@ -1083,21 +1127,112 @@ async function listUsbDevices(selected) {
   }
 }
 
+// ---- telecamera comandata via USB (UVC, in prova)
+
+// elenco per Impostazioni › Telecamera: la camera scelta resta in elenco anche se scollegata
+async function listUvcDevices(selectedId, selectedLabel) {
+  const sel = $('#sUvcDevice');
+  let devs = [];
+  try { devs = await videoDevices(); } catch (_) { devs = []; }
+  const opts = devs.map((d, i) => {
+    const label = d.label || t('s.usbCamera', { n: i + 1 });
+    return { id: d.deviceId, label, text: label };
+  });
+  let pick = opts.find((o) => selectedId && o.id === selectedId) || opts.find((o) => selectedLabel && o.label === selectedLabel);
+  if (!pick && (selectedId || selectedLabel)) {
+    pick = { id: selectedId || '', label: selectedLabel || '', text: t('s.uvcMissing', { name: selectedLabel || 'USB' }) };
+    opts.unshift(pick);
+  }
+  sel.innerHTML = opts.map((o) => `<option value="${esc(o.id)}" data-label="${esc(o.label)}">${esc(o.text)}</option>`).join('')
+    || `<option value="" data-label="">${esc(t('w.usbNone'))}</option>`;
+  if (pick) sel.selectedIndex = opts.indexOf(pick);
+  return devs;
+}
+
+// Prova dei comandi via USB: si apre la camera chiedendo pan/tilt/zoom e si leggono le capacità.
+// Dentro PTZ Hub la cattura è condivisa: funziona anche con l'anteprima o i comandi già attivi.
+async function probeUvc(deviceId) {
+  let stream = null;
+  try {
+    const video = { pan: true, tilt: true, zoom: true };
+    if (deviceId) video.deviceId = { exact: deviceId };
+    stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    const tr = stream.getVideoTracks()[0];
+    return { ok: true, label: tr.label, axes: UVC.analyzeCaps(tr.getCapabilities()) };
+  } catch (e) {
+    return { ok: false, code: UVC.classifyError(e), error: errMsg(e) };
+  } finally {
+    if (stream) stream.getTracks().forEach((x) => x.stop());
+  }
+}
+
+const capFirst = (x) => (x ? x.charAt(0).toUpperCase() + x.slice(1) : x);
+
+// esito della prova: kind (ok, warn, bad), frase per esteso e risposta breve per il primo avvio
+function uvcVerdict(r) {
+  if (!r.ok) {
+    const text = { busy: t('uvc.busy'), notfound: t('uvc.notFound'), denied: t('uvc.denied') }[r.code] || t('uvc.error', { error: r.error });
+    return { kind: 'bad', text: capFirst(text), short: r.code === 'busy' ? t('w.usbBusy') : t('w.usbErr') };
+  }
+  const a = r.axes;
+  if (!a.any) return { kind: 'bad', text: `${t('uvc.noPtz')}.`, short: t('w.usbNo') };
+  if (a.pan && a.tilt && a.zoom) return { kind: 'ok', text: t('s.uvcAll'), short: t('w.usbAll') };
+  if (!a.move) return { kind: 'warn', text: `${t('uvc.zoomOnly')}.`, short: t('w.usbZoom') };
+  const list = [a.pan && 'pan', a.tilt && 'tilt', a.zoom && 'zoom'].filter(Boolean).join(', ');
+  return { kind: 'warn', text: t('s.uvcSome', { list }), short: list };
+}
+
+let uvcCheckToken = 0;
+async function checkUvc() {
+  const sel = $('#sUvcDevice');
+  const opt = sel.selectedOptions[0];
+  uvcCheckToken += 1;
+  const token = uvcCheckToken;
+  $('#uvcOut').innerHTML = '';
+  if (!opt || (!opt.value && !opt.dataset.label)) {
+    setLine($('#uvcIcon'), $('#uvcText'), 'bad', t('w.usbNone'));
+    return;
+  }
+  const btn = $('#btnUvcCheck');
+  btn.disabled = true;
+  setLine($('#uvcIcon'), $('#uvcText'), 'busy', t('s.uvcChecking'));
+  const r = await probeUvc(opt.value);
+  if (token !== uvcCheckToken) return;
+  btn.disabled = false;
+  const v = uvcVerdict(r);
+  setLine($('#uvcIcon'), $('#uvcText'), v.kind, v.text);
+  if (r.ok) {
+    $('#uvcOut').innerHTML = [['s.uvcPan', r.axes.pan], ['s.uvcTilt', r.axes.tilt], ['s.uvcZoom', r.axes.zoom], ['s.uvcFocus', r.axes.focusDistance]]
+      .map(([k, on]) => `<div class="line ${on ? 'ok' : 'bad'}">${esc(t(k))}: <b>${esc(t(on ? 's.uvcYes' : 's.uvcNo'))}</b></div>`).join('');
+  }
+}
+$('#sUvcDevice').addEventListener('change', () => checkUvc());
+$('#btnUvcCheck').addEventListener('click', () => checkUvc());
+
 function formCamera() {
   const host = $('#sHost').value.trim();
+  const protocol = $('#sProtocol').value;
+  const usb = protocol === 'usb';
+  // camera USB: elenco non ancora letto = la scelta salvata
+  const opt = $('#sUvcDevice').selectedOptions[0];
+  const usbDeviceId = opt ? opt.value : (settings.camera.usbDeviceId || '');
+  const usbLabel = opt ? (opt.dataset.label || '') : (settings.camera.usbLabel || '');
   let name = '';
-  if (discoveredNames.has(host)) name = discoveredNames.get(host);
-  else if (host === settings.camera.host) name = settings.camera.name || '';
+  if (usb) name = usbLabel;
+  else if (discoveredNames.has(host)) name = discoveredNames.get(host);
+  else if (host === settings.camera.host && settings.camera.protocol !== 'usb') name = settings.camera.name || '';
   return {
     host,
     name,
-    protocol: $('#sProtocol').value,
-    port: Number($('#sPort').value) || DEFAULT_PORTS[$('#sProtocol').value],
+    protocol,
+    port: usb ? (Number(settings.camera.port) || 1259) : (Number($('#sPort').value) || DEFAULT_PORTS[protocol]),
     address: clamp(Number($('#sAddress').value) || 1, 1, 7),
     user: $('#sUser').value.trim(),
     pass: $('#sPass').value,
     invertPan: $('#sInvertPan').checked,
     invertTilt: $('#sInvertTilt').checked,
+    usbDeviceId,
+    usbLabel,
   };
 }
 
@@ -1112,7 +1247,8 @@ function formPartial() {
       rotate180: $('#sRotate').checked,
       grid: $('#sGrid').checked,
     },
-    presetMode: $('#sModeSlot').checked ? 'slot' : 'app',
+    // la camera USB non ha memorie interne
+    presetMode: $('#sModeSlot').checked && $('#sProtocol').value !== 'usb' ? 'slot' : 'app',
     slotBase: clamp(Number($('#sSlotBase').value) || 0, 0, 240),
     globalHotkeys: $('#sGlobal').checked,
     language: $('#sLanguage').value,
@@ -1127,10 +1263,13 @@ function formPartial() {
   };
 }
 
-// confronto per «uscire senza salvare?» (il dispositivo USB si legge in ritardo: non conta)
+// confronto per «uscire senza salvare?» (i dispositivi USB si leggono in ritardo: non contano)
 function formSignature() {
   const f = formPartial();
   delete f.preview.usbDeviceId;
+  delete f.camera.usbLabel;
+  delete f.camera.name;
+  if (f.camera.protocol !== 'usb') delete f.camera.usbDeviceId;
   return JSON.stringify(f);
 }
 
@@ -1344,6 +1483,15 @@ function cleanPos(pos) {
   if (pos.kind === 'onvif') {
     if (!num(pos.x) || !num(pos.y)) return null;
     return { kind: 'onvif', x: pos.x, y: pos.y, zoom: num(pos.zoom) ? pos.zoom : null };
+  }
+  if (pos.kind === 'usb') {
+    // camera USB: valori assoluti; una camera con solo zoom salva solo lo zoom
+    const out = { kind: 'usb' };
+    for (const k of ['pan', 'tilt', 'zoom']) if (num(pos[k])) out[k] = pos[k];
+    if (Object.keys(out).length === 1) return null;
+    out.focusAuto = pos.focusAuto !== false;
+    out.focus = !out.focusAuto && num(pos.focus) ? pos.focus : null;
+    return out;
   }
   return null;
 }
@@ -1657,6 +1805,8 @@ $('#xLan').addEventListener('change', () => { $('#xLanWarn').hidden = !$('#xLan'
 const wz = {
   step: 1, devices: [], selected: null, name: '', manual: false, analysis: null, rtsp: null,
   token: 0, searching: false, saved: false,
+  mode: 'net', // net = camera di rete; usb = camera comandata via USB (in prova)
+  usbOpen: false, usbDevices: [], usb: null,
 };
 
 function renderWzSteps() {
@@ -1723,11 +1873,15 @@ async function wzSearch() {
     const nets = r.networks.map((n) => n.address.replace(/\.\d+$/, '.x')).join(', ') || t('d.netsNone');
     if (!r.devices.length) {
       wzSetSearch('warn', t('w.noneTitle'), t('w.noneSub', { nets }));
-      if (!wz.selected) wzShowManual(true);
+      // niente in rete: indirizzo a mano oppure una camera collegata via USB
+      if (!wz.selected && wz.mode !== 'usb') {
+        wzShowManual(true);
+        if (!wz.usbOpen) wzShowUsb(true);
+      }
     } else {
       wzSetSearch('ok', t('w.doneTitle'), t('w.doneSub', { nets, n: r.devices.length }));
       const best = r.devices[0];
-      if (!wz.selected && !wz.manual && (best.onvif || best.rtsp)) wzSelect(best.ip);
+      if (!wz.selected && !wz.manual && wz.mode !== 'usb' && (best.onvif || best.rtsp)) wzSelect(best.ip);
     }
     renderWzDevices();
   } catch (e) {
@@ -1762,6 +1916,11 @@ async function wzCheck(host) {
   const token = wz.token;
   wz.analysis = null;
   wz.rtsp = null;
+  // scelta una camera di rete: quella USB eventualmente scelta prima non vale più
+  wz.mode = 'net';
+  wz.usb = null;
+  renderWzUsbDevices();
+  wzNote('');
   $('#wzUse').disabled = true;
   $('#wzChecks').hidden = false;
   $('#wzChecksTitle').textContent = t('w.checkOf', { host });
@@ -1826,6 +1985,101 @@ $('#wzCheck').addEventListener('click', () => {
 $('#wzHost').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#wzCheck').click(); } });
 $('#wzSkip').addEventListener('click', () => { closeWizard(); openSettings('camera'); });
 
+// ---- camera collegata via USB (UVC, in prova): si sceglie dall'elenco e si prova subito
+
+function wzNote(text) {
+  $('#wzCheckNote').textContent = text || '';
+  $('#wzCheckNote').hidden = !text;
+}
+
+function renderWzUsbDevices() {
+  const box = $('#wzUsbDevices');
+  if (!wz.usbOpen) return;
+  if (!wz.usbDevices.length) {
+    box.innerHTML = `<div class="muted small">${esc(t('w.usbNone'))}</div>`;
+    return;
+  }
+  box.innerHTML = wz.usbDevices.map((d) => {
+    const sel = wz.mode === 'usb' && wz.usb && wz.usb.deviceId === d.deviceId;
+    return `<button type="button" class="device${sel ? ' sel' : ''}" data-usb="${esc(d.deviceId)}">`
+      + `<span class="dev-thumb">${ICONS.camera}</span>`
+      + `<span class="dev-text"><b>${esc(d.label)}</b><span>${esc(t('w.usbDevice'))}</span></span></button>`;
+  }).join('');
+}
+
+async function wzShowUsb(on) {
+  wz.usbOpen = on;
+  $('#wzUsb').hidden = !on;
+  if (!on) return;
+  let devs = [];
+  try { devs = await videoDevices(); } catch (_) { devs = []; }
+  wz.usbDevices = devs.map((d, i) => ({ deviceId: d.deviceId, label: d.label || t('s.usbCamera', { n: i + 1 }) }));
+  renderWzUsbDevices();
+}
+
+async function wzSelectUsb(deviceId) {
+  const d = wz.usbDevices.find((x) => x.deviceId === deviceId);
+  if (!d) return;
+  wz.token += 1;
+  const token = wz.token;
+  wz.mode = 'usb';
+  wz.selected = null; // nessuna camera di rete scelta
+  wz.analysis = null;
+  wz.usb = { ...d, ok: false };
+  renderWzDevices();
+  renderWzUsbDevices();
+  $('#wzUse').disabled = true;
+  $('#wzChecks').hidden = false;
+  $('#wzChecksTitle').textContent = t('w.checkOf', { host: d.label });
+  wzCheckLine($('#wzCheckCmd'), 'wait', t('w.cmdUsb'), t('w.checkingShort'));
+  wzCheckLine($('#wzCheckPos'), 'wait', t('w.pos'), t('w.checkingShort'));
+  wzCheckLine($('#wzCheckVideo'), 'wait', t('w.video'), t('w.checkingShort'));
+  wzNote('');
+  const r = await probeUvc(deviceId);
+  if (token !== wz.token) return;
+  const v = uvcVerdict(r);
+  wz.usb.ok = !!(r.ok && r.axes.any);
+  if (r.ok && r.label) wz.usb.label = r.label;
+  wzCheckLine($('#wzCheckCmd'), v.kind, t('w.cmdUsb'), v.short);
+  if (wz.usb.ok) wzCheckLine($('#wzCheckPos'), 'ok', t('w.pos'), t('w.posOk'));
+  else wzCheckLine($('#wzCheckPos'), '', t('w.pos'), '—');
+  if (r.ok) wzCheckLine($('#wzCheckVideo'), 'ok', t('w.video'), t('w.videoUsb'));
+  else wzCheckLine($('#wzCheckVideo'), 'bad', t('w.video'), t('w.usbErr'));
+  // esito non pieno: si spiega perché e cosa fare
+  wzNote(v.kind === 'ok' ? '' : v.text);
+  $('#wzUse').disabled = !wz.usb.ok;
+}
+
+$('#wzUsbBtn').addEventListener('click', () => wzShowUsb(!wz.usbOpen));
+$('#wzUsbDevices').addEventListener('click', (e) => {
+  const el = e.target.closest('.device');
+  if (el) wzSelectUsb(el.dataset.usb);
+});
+
+async function wzUseUsb() {
+  const u = wz.usb;
+  if (!u || !u.ok) return;
+  const btn = $('#wzUse');
+  btn.disabled = true;
+  try {
+    const camera = {
+      ...settings.camera, protocol: 'usb', usbDeviceId: u.deviceId, usbLabel: u.label, name: u.label,
+    };
+    // anteprima dalla stessa camera: la cattura è condivisa con i comandi
+    await wzSave({ camera, presetMode: 'app', preview: { source: 'usb', usbDeviceId: u.deviceId } });
+    wz.saved = 'usb';
+    camFirstAttempt = true;
+    stopUsb();
+    applyPreviewSource();
+    renderCamStatus();
+    wzGo(2);
+  } catch (e) {
+    toast(t('s.notSaved', { error: errMsg(e) }), 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function wzSave(partial) {
   const r = await ptz.saveSettings(partial);
   settings = r.settings;
@@ -1842,6 +2096,7 @@ async function wzSavePreview(source, rtspUrl) {
 }
 
 $('#wzUse').addEventListener('click', async () => {
+  if (wz.mode === 'usb') { await wzUseUsb(); return; }
   const a = wz.analysis;
   if (!a || !a.chosen) return;
   const btn = $('#wzUse');
@@ -1941,8 +2196,9 @@ function renderWzReady() {
   const c = settings.camera;
   const src = settings.preview.source;
   const name = c.name ? `<b>${esc(c.name)}</b> · ` : '';
+  const where = c.protocol === 'usb' ? '' : `${esc(c.host)} · `; // camera USB: niente indirizzo IP
   const lines = [
-    `${t('w.sumCamera')} ${name}${esc(c.host)} · ${esc(PROTOCOL_DESC[c.protocol] || c.protocol)}`,
+    `${t('w.sumCamera')} ${name}${where}${esc(PROTOCOL_DESC[c.protocol] || c.protocol)}`,
     esc(src === 'rtsp' ? t('w.sumRtsp') : src === 'usb' ? t('w.sumUsb') : t('w.sumNone')),
     settings.presetMode === 'slot' ? esc(t('w.sumSlot')) : t('w.sumApp', { user: `<b>${esc(info.user)}</b>` }),
   ];
@@ -2016,7 +2272,7 @@ function renderAll() {
   ptz.onMaximized((on) => renderMaximized(on));
 
   // primo avvio di questo account: la procedura guidata trova la telecamera
-  if (!settings.camera.host) {
+  if (!camConfigured(settings.camera)) {
     if (view.mode !== 'full') applyView(await ptz.setView('full'));
     openWizard();
   }
