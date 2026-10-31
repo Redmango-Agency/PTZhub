@@ -1,0 +1,36 @@
+name: Problema
+description: Qualcosa non funziona come dovrebbe
+labels: [bug]
+body:
+  - type: textarea
+    id: cosa
+    attributes:
+      label: Cosa succede
+      description: Cosa hai fatto, cosa ti aspettavi e cosa è successo invece.
+    validations:
+      required: true
+  - type: input
+    id: versione
+    attributes:
+      label: Versione di PTZ Panel
+      placeholder: "1.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: sistema
+    attributes:
+      label: Sistema
+      options: [Windows 11, Windows 10, macOS]
+    validations:
+      required: true
+  - type: input
+    id: camera
+    attributes:
+      label: Telecamera e protocollo
+      placeholder: "Tenveo VHD20N · VISCA over IP UDP"
+  - type: textarea
+    id: log
+    attributes:
+      label: errori.log (se c'è)
+      description: Dalla cartella dati (Impostazioni › Generale › Cartella dati).
+      render: text

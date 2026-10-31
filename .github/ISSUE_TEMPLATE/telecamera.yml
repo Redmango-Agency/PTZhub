@@ -1,0 +1,31 @@
+name: Telecamera provata
+description: Racconta com'è andata con il tuo modello di telecamera
+labels: [compatibilità]
+body:
+  - type: input
+    id: modello
+    attributes:
+      label: Marca e modello
+      placeholder: "Tenveo VHD20N"
+    validations:
+      required: true
+  - type: input
+    id: protocollo
+    attributes:
+      label: Protocollo rilevato
+      placeholder: "VISCA over IP · UDP 1259"
+  - type: checkboxes
+    id: funziona
+    attributes:
+      label: Cosa funziona
+      options:
+        - label: Movimento (joystick, frecce)
+        - label: Zoom
+        - label: Fuoco
+        - label: Posizione esatta (inquadrature salvate nel programma)
+        - label: Memorie della camera
+        - label: Anteprima video RTSP
+  - type: textarea
+    id: note
+    attributes:
+      label: Note

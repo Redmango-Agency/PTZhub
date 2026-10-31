@@ -35,11 +35,20 @@ Il supporto è in fase di collaudo: se la provi con il tuo modello, apri una *Is
 
 ## Installazione
 
-1. Scarica `PTZ-Panel-Setup-<versione>.exe` dalla pagina **Releases**.
+1. Scarica `PTZ-Panel-Setup-<versione>.exe` dalla pagina [**Releases**](https://github.com/Redmango-Agency/PTZhub/releases).
 2. Avvialo: installa il programma per tutti gli account del PC, crea i collegamenti e apre il firewall per la telecamera.
 3. Windows può avvisare che il programma non è firmato: «Ulteriori informazioni» → «Esegui comunque».
 
 C'è anche una versione portatile (`…-portable-win-x64.zip`) da estrarre e avviare senza installazione.
+
+### Mac (in prova)
+
+1. Scarica il dmg adatto: `…-mac-arm64.dmg` per i Mac con chip Apple (M1–M4), `…-mac-x64.dmg` per i Mac Intel.
+2. Apri il dmg e trascina «PTZ Panel» in Applicazioni.
+3. L'app non è ancora firmata da Apple: la prima volta apri il Terminale e incolla
+   `xattr -cr "/Applications/PTZ Panel.app"`
+   (senza questo passo macOS dice che l'app «è danneggiata»).
+4. Alla prima ricerca della telecamera consenti l'accesso alla rete locale.
 
 ### Aggiornamenti
 
@@ -64,7 +73,7 @@ npm run dist:win        # crea installer e versione portatile in dist/
 node tools/rileva-camera.js [--ip 192.168.1.50]   # diagnosi della rete da riga di comando
 ```
 
-Su GitHub l'installer viene creato automaticamente (GitHub Actions su Windows) a ogni tag `v*` e pubblicato nelle Releases.
+Su GitHub installer Windows e dmg per Mac vengono creati automaticamente (GitHub Actions) a ogni tag `v*` e pubblicati nelle [Releases](https://github.com/Redmango-Agency/PTZhub/releases). Le novità di ogni versione sono in [CHANGELOG.md](CHANGELOG.md).
 
 Per il controllo aggiornamenti, `package.json` → `ptzPanel.updateRepo` indica il repository (`proprietario/nome`); se è vuoto il controllo è spento. Pubblica le release con tag `vX.Y.Z` uguale alla versione del `package.json`: le pre-release non vengono proposte.
 
@@ -86,6 +95,11 @@ src/renderer/         interfaccia
 test/                 telecamere simulate e test
 build/                icone, installer (NSIS) e script di impacchettamento
 ```
+
+## Contribuire e sicurezza
+
+- Hai provato una telecamera o trovato un problema? Apri una [Issue](https://github.com/Redmango-Agency/PTZhub/issues/new/choose). Come contribuire: [CONTRIBUTING.md](CONTRIBUTING.md).
+- Vulnerabilità: segnalale in privato, vedi [SECURITY.md](SECURITY.md).
 
 ## Licenza
 

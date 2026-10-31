@@ -12,9 +12,17 @@
   },
   "author": "Redmango S.r.l.",
   "ptzPanel": {
-    "updateRepo": ""
+    "updateRepo": "Redmango-Agency/PTZhub"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Redmango-Agency/PTZhub.git"
+  },
+  "homepage": "https://github.com/Redmango-Agency/PTZhub#readme",
+  "bugs": {
+    "url": "https://github.com/Redmango-Agency/PTZhub/issues"
+  },
   "devDependencies": {
     "electron": "^45.2.1",
     "electron-builder": "^26.18.0",
