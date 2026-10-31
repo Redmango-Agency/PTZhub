@@ -1,0 +1,11 @@
+PTZ Panel per Mac (versione di prova, non firmata da Apple)
+
+1. Trascina «PTZ Panel» nella cartella Applicazioni.
+2. Apri il Terminale e incolla questa riga (toglie il blocco di macOS sulle app scaricate):
+
+   xattr -cr "/Applications/PTZ Panel.app"
+
+3. Apri PTZ Panel. Alla prima ricerca della telecamera macOS chiede di consentire
+   l'accesso alla rete locale: rispondi Consenti.
+
+Senza il passo 2 macOS può dire che l'app «è danneggiata»: non lo è, manca solo la firma Apple.

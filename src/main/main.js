@@ -4,7 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const {
-  app, BrowserWindow, ipcMain, globalShortcut, dialog, shell, screen, clipboard, net,
+  app, BrowserWindow, ipcMain, globalShortcut, dialog, shell, screen, clipboard, net, Menu,
 } = require('electron');
 const { Store, DEFAULT_PORTS } = require('./store');
 const { ViscaCamera } = require('./visca');
@@ -528,6 +528,10 @@ app.on('second-instance', () => {
 
 app.whenReady().then(() => {
   if (!gotLock) return;
+  if (process.platform === 'darwin') {
+    // sul Mac serve il menu in alto: Esci (⌘Q) e Copia/Incolla nei campi di testo
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
+  }
   const sharedDefaults = path.join(path.dirname(process.execPath), 'ptz-defaults.json');
   store = new Store(app.getPath('userData'), sharedDefaults, os.userInfo().username);
   I18N.setLang(I18N.resolve(store.settings.language, app.getLocale()));

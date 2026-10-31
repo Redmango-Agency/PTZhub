@@ -88,17 +88,37 @@
     },
     "mac": {
       "target": [
-        "dir"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
+      "category": "public.app-category.video",
+      "icon": "build/icon.png",
+      "identity": null,
+      "darkModeSupport": true,
+      "minimumSystemVersion": "11.0",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "PTZ Panel comanda le telecamere sulla rete locale. / PTZ Panel controls cameras on the local network.",
+        "NSCameraUsageDescription": "Anteprima di una telecamera collegata via USB. / Preview of a camera connected via USB."
+      },
       "extraResources": [
         {
-          "from": "vendor/ffmpeg/darwin-arm64",
+          "from": "vendor/ffmpeg/darwin-${arch}",
           "to": "ffmpeg",
           "filter": [
             "ffmpeg"
           ]
+        },
+        {
+          "from": "build/licenses/ffmpeg-GPL-3.0.txt",
+          "to": "ffmpeg/LICENSE.txt"
         }
-      ]
+      ],
+      "artifactName": "PTZ-Panel-${version}-mac-${arch}.${ext}"
     },
     "afterPack": "build/after-pack.js",
     "electronLanguages": [
@@ -130,6 +150,25 @@
       "installerSidebar": "build/installerSidebar.bmp",
       "uninstallerSidebar": "build/uninstallerSidebar.bmp"
     },
-    "publish": null
+    "publish": null,
+    "dmg": {
+      "title": "PTZ Panel ${version}",
+      "contents": [
+        {
+          "x": 150,
+          "y": 190
+        },
+        {
+          "x": 410,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 560,
+        "height": 380
+      }
+    }
   }
 }
