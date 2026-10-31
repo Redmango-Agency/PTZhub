@@ -15,7 +15,7 @@ Serve Node.js 22.
 npm install
 npm run ffmpeg:win        # oppure: node scripts/fetch-ffmpeg.js darwin-arm64
 npm start
-npm test                  # protocolli con telecamere simulate (VISCA, ONVIF), collegamento esterno, aggiornamenti
+npm test                  # protocolli con telecamere simulate (VISCA, ONVIF, USB), collegamento esterno, aggiornamenti
 ```
 
 - Testi dell'interfaccia: sempre in italiano **e** inglese in `src/shared/i18n.js`.

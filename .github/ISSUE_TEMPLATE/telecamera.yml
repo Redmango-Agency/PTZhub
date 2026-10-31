@@ -25,6 +25,8 @@ body:
         - label: Posizione esatta (inquadrature salvate nel programma)
         - label: Memorie della camera
         - label: Anteprima video RTSP
+        - label: Anteprima video USB
+        - label: Comandi via cavo USB (UVC, in prova)
   - type: textarea
     id: note
     attributes:
