@@ -2,7 +2,7 @@
 
 Programma gratuito (MIT, © Redmango S.r.l.) per comandare telecamere PTZ da Windows e Mac: anteprima, joystick, zoom e fuoco, inquadrature con posizione esatta, viste ridotte, pannello per OBS, indirizzi web, tasti globali e plugin per Stream Deck. Fino alla 1.3 si chiamava PTZ Panel.
 
-Storico completo dello sviluppo, decisioni e cose in sospeso: `.claude/storico.md` (solo locale, non va su GitHub).
+Storico completo dello sviluppo, decisioni e cose in sospeso: `storico.local.md` nella cartella del progetto (solo locale, non va su GitHub). Leggilo all’inizio di un lavoro nuovo.
 
 ## Regole di lavoro
 - Rispondi in italiano, breve e concreto. Commenti nel codice e messaggi dei commit in italiano.
