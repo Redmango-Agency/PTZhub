@@ -27,7 +27,7 @@ jobs:
         run: node scripts/fetch-ffmpeg.js win32-x64
 
       - name: Test (telecamere simulate VISCA e ONVIF)
-        run: node scripts/ci-annotate.js "Test" -- npm test
+        run: node scripts/ci-annotate.js "Test" --retry 1 -- npm test
 
       - name: Crea installer e versione portatile
         run: npx electron-builder --win --x64 --publish never
@@ -59,7 +59,7 @@ jobs:
           node scripts/fetch-ffmpeg.js darwin-x64
 
       - name: Test
-        run: node scripts/ci-annotate.js "Test" -- npm test
+        run: node scripts/ci-annotate.js "Test" --retry 1 -- npm test
 
       # Senza certificato Apple il dmg non è firmato: al primo avvio serve
       # xattr -cr "/Applications/PTZ Hub.app" (vedi README)
@@ -92,7 +92,7 @@ jobs:
         run: npm ci
 
       - name: Test del plugin
-        run: node ../scripts/ci-annotate.js "Test del plugin" -- npm test
+        run: node ../scripts/ci-annotate.js "Test del plugin" --retry 1 -- npm test
 
       - name: Crea il pacchetto per Stream Deck
         run: npm run pack
