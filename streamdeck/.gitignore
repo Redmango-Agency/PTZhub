@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# generata da "npm run build"
+agency.redmango.ptzhub.sdPlugin/

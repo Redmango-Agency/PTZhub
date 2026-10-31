@@ -1,0 +1,28 @@
+{
+  "name": "ptz-hub-streamdeck",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plugin Stream Deck per PTZ Hub: inquadrature con miniatura e comandi della telecamera",
+  "license": "MIT",
+  "author": "Redmango S.r.l.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.5.1"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/build.mjs && node --test test/address.test.js test/sse.test.js test/images.test.js test/pi-logic.test.js test/connection.test.js test/real-server.test.js test/e2e-plugin.test.js",
+    "validate": "streamdeck validate agency.redmango.ptzhub.sdPlugin --no-update-check",
+    "pack": "node scripts/build.mjs && node scripts/pack.mjs"
+  },
+  "dependencies": {
+    "@elgato/streamdeck": "2.1.2"
+  },
+  "devDependencies": {
+    "@elgato/cli": "1.10.4",
+    "@resvg/resvg-wasm": "2.6.2",
+    "@rollup/plugin-commonjs": "29.0.3",
+    "@rollup/plugin-node-resolve": "16.0.3",
+    "rollup": "4.67.2"
+  }
+}
