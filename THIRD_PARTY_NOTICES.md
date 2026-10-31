@@ -1,6 +1,6 @@
 # Third-party software / Software di terze parti
 
-PTZ Panel is released under the MIT License (see `LICENSE`). The distributed
+PTZ Hub is released under the MIT License (see `LICENSE`). The distributed
 installer also contains the following components, each under its own license.
 
 ## FFmpeg

@@ -9,10 +9,10 @@ VERSION=$(node -p "require('./package.json').version")
 for ARCH in arm64 x64; do
   SRC=dist/mac-arm64; [ "$ARCH" = x64 ] && SRC=dist/mac
   STAGE=$(mktemp -d)
-  cp -a "$SRC/PTZ Panel.app" "$STAGE/"
+  cp -a "$SRC/PTZ Hub.app" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
   cp build/mac-extra/Leggimi.txt "$STAGE/Leggimi.txt"
-  genisoimage -quiet -V "PTZ Panel" -D -R -no-pad -o "dist/PTZ-Panel-$VERSION-mac-$ARCH.dmg" "$STAGE"
+  genisoimage -quiet -V "PTZ Hub" -D -R -no-pad -o "dist/PTZ-Hub-$VERSION-mac-$ARCH.dmg" "$STAGE"
   rm -rf "$STAGE"
-  echo "dist/PTZ-Panel-$VERSION-mac-$ARCH.dmg"
+  echo "dist/PTZ-Hub-$VERSION-mac-$ARCH.dmg"
 done

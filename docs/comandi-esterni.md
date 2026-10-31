@@ -2,13 +2,13 @@
 
 *English summary at the end.*
 
-PTZ Panel è il **centro operativo**: tiene la connessione alla telecamera e le inquadrature dell'account. OBS, Stream Deck e tastiere macro sono telecomandi che passano sempre dal programma, così lo stato è lo stesso ovunque (l'inquadratura attiva si accende in tutti).
+PTZ Hub è il **centro operativo**: tiene la connessione alla telecamera e le inquadrature dell'account. OBS, Stream Deck e tastiere macro sono telecomandi che passano sempre dal programma, così lo stato è lo stesso ovunque (l'inquadratura attiva si accende in tutti).
 
 Tutto si configura in **Impostazioni › Comandi esterni**. Il programma deve essere aperto.
 
 ## Pannello in OBS
 
-1. In PTZ Panel copia l'**Indirizzo per il pannello di OBS**.
+1. In PTZ Hub copia l'**Indirizzo per il pannello di OBS**.
 2. In OBS: **Pannelli › Pannelli browser personalizzati**, incolla l'indirizzo, dai un nome (es. «Telecamera») e applica.
 
 Il pannello mostra le inquadrature con miniatura, quella attiva, STOP, Home, successiva/precedente e i comandi manuali (joystick e zoom).
@@ -24,7 +24,7 @@ Gli indirizzi contengono la chiave dell'account (`k=…`). «Nuova chiave» la c
 
 ## Tastiere macro
 
-In **Funzioni e tasti…** premi **Assegna** accanto alla funzione e poi la combinazione da usare. Serve Ctrl o Alt (es. `Ctrl+Alt+Maiusc+A`), oppure un tasto F13–F24 da solo. Poi programma la tastiera macro perché invii quella combinazione. I tasti funzionano anche quando PTZ Panel non è in primo piano.
+In **Funzioni e tasti…** premi **Assegna** accanto alla funzione e poi la combinazione da usare. Serve Ctrl o Alt (es. `Ctrl+Alt+Maiusc+A`), oppure un tasto F13–F24 da solo. Poi programma la tastiera macro perché invii quella combinazione. I tasti funzionano anche quando PTZ Hub non è in primo piano.
 
 ## Elenco indirizzi
 
@@ -60,4 +60,4 @@ In `/api/state`, `activeIndex` conta da 1 come `/api/recall/<n>` (0 = nessuna in
 
 ## English summary
 
-PTZ Panel is the control centre; OBS, Stream Deck, Companion and macro keyboards are remotes that go through it. Settings › External control shows the **OBS dock address** (OBS: Docks › Custom Browser Docks) and **Functions and keys…**, where every function has a copyable URL (Stream Deck “Website” action with background access, Companion Generic HTTP GET) and an assignable global key (Ctrl/Alt combination or F13–F24 for macro keyboards). Endpoints are listed in the table above; all require the account key `k=…`. By default only requests from the same PC are accepted.
+PTZ Hub is the control centre; OBS, Stream Deck, Companion and macro keyboards are remotes that go through it. Settings › External control shows the **OBS dock address** (OBS: Docks › Custom Browser Docks) and **Functions and keys…**, where every function has a copyable URL (Stream Deck “Website” action with background access, Companion Generic HTTP GET) and an assignable global key (Ctrl/Alt combination or F13–F24 for macro keyboards). Endpoints are listed in the table above; all require the account key `k=…`. By default only requests from the same PC are accepted.

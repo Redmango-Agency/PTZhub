@@ -1,6 +1,6 @@
 {
   "name": "ptz-hub-streamdeck",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "private": true,
   "description": "Plugin Stream Deck per PTZ Hub: inquadrature con miniatura e comandi della telecamera",
   "license": "MIT",

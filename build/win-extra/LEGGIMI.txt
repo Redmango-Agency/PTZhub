@@ -2,12 +2,12 @@ PTZ PANEL — pannello di controllo per telecamere PTZ
 =====================================================
 
 INSTALLAZIONE
-1. Avvia "PTZ-Panel-Setup-<versione>.exe" e segui la procedura: il programma viene
+1. Avvia "PTZ-Hub-Setup-<versione>.exe" e segui la procedura: il programma viene
    installato per tutti gli account del PC, con collegamenti nel menu Start
    e sul desktop. L'installer apre anche il firewall per la telecamera.
 2. Windows può mostrare "PC protetto da Windows" (il programma non è firmato):
    clic su "Ulteriori informazioni" > "Esegui comunque".
-   Versione portatile (zip): basta estrarla e avviare "PTZ Panel.exe"; se
+   Versione portatile (zip): basta estrarla e avviare "PTZ Hub.exe"; se
    compare il Firewall, spunta sia le reti private sia quelle pubbliche.
 
 PRIMA CONFIGURAZIONE (una volta per account)
@@ -49,7 +49,7 @@ Impostazioni > "Comandi esterni" (il programma deve essere aperto):
 Tutto passa dal programma: l'inquadratura attiva è la stessa ovunque.
 
 DOVE SONO I DATI
-%APPDATA%\PTZ Panel (impostazioni.json e preset.json), uno per account.
+%APPDATA%\PTZ Hub (impostazioni.json e preset.json), uno per account.
 Da Impostazioni si possono esportare e importare le inquadrature.
 
 Licenza: MIT. Codice sorgente e aggiornamenti: pagina del progetto su GitHub.

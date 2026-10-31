@@ -53,6 +53,7 @@ class Hub extends EventEmitter {
     return {
       camera: { ...this.getCamStatus(), host: cam.host || '', name: cam.name || '', protocol: cam.protocol || '' },
       activeId: this.activeId,
+      targetId: this.targetId, // richiamo in corso (la camera sta andando lì), null se nessuno
       activeIndex: list.findIndex((p) => p.id === this.activeId) + 1, // da 1, come /api/recall/<n>; 0 = nessuna
       editing: this.editing,
       moveSpeed: this.store.settings.moveSpeed,
@@ -106,6 +107,7 @@ class Hub extends EventEmitter {
     const gen = this.gen;
     const cancelled = () => this.gen !== gen;
     this.targetId = p.id;
+    this.changed();
     const sp = speed != null ? speed : this.store.settings.recallSpeed;
     try {
       if (p.pos) await cam.gotoPosition(p.pos, sp, cancelled);
@@ -113,7 +115,7 @@ class Hub extends EventEmitter {
       else throw new Error(t('presets.noPosition'));
     } catch (e) {
       if (cancelled() || (e && e.code === 'CANCELLED')) return null;
-      if (!cancelled()) this.targetId = null;
+      if (!cancelled()) { this.targetId = null; this.changed(); }
       throw e;
     }
     if (cancelled()) return null;

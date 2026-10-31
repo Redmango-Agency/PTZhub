@@ -4,11 +4,22 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 
 ## [Non ancora pubblicata]
 
-### In arrivo nella 1.4
-- Il programma si chiama **PTZ Hub**; inquadrature e impostazioni di PTZ Panel vengono spostate in automatico.
-- Interfaccia chiara completa: Regia, editor, impostazioni a sezioni, primo avvio guidato.
-- Vista **Compatta** (colonna sempre in primo piano) e **Laterale** (linguetta sul bordo dello schermo che si apre col mouse), a destra o a sinistra.
-- Plugin per **Stream Deck** con miniatura, nome e luce «in onda» sui tasti.
+## [1.4.0] — 2026-10-31
+
+### Cambiato
+- Il programma si chiama **PTZ Hub**. Al primo avvio impostazioni e inquadrature di PTZ Panel vengono copiate in automatico; l'installer sostituisce la versione precedente.
+- Nuova icona e nuovo logo.
+- Interfaccia chiara rifatta da capo: Regia, editor delle inquadrature, impostazioni a pagina intera in cinque sezioni (Telecamera, Anteprima video, Inquadrature, Comandi esterni, Generale).
+
+### Aggiunto
+- **Primo avvio guidato** in tre passi: trova la telecamera, l'anteprima video, tutto pronto.
+- Vista **Compatta**: colonna sempre in primo piano con inquadrature, Home e STOP, agganciata al lato scelto.
+- Vista **Laterale**: linguetta sul bordo sinistro o destro dello schermo che si apre al passaggio del mouse.
+- **Plugin per Stream Deck** con miniatura, nome e luce «in onda» sui tasti, più i comandi (STOP, Home, successiva/precedente, zoom, fuoco).
+- Avviso «La telecamera non risponde» con «Riprova ora»; Regia vuota con «Crea la prima inquadratura»; schermata dei tasti rapidi.
+- Miniature senza foto: segnaposto con il numero dell'inquadratura.
+- Conferma prima di importare inquadrature; filtro «Con tasto» in Funzioni e tasti.
+- Collegamento esterno: lo stato indica anche l'inquadratura in arrivo e la versione di PTZ Hub.
 
 ## [1.3.0] — 2026-10-31
 
@@ -38,7 +49,8 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 - Inquadrature con editor dedicato, salvate per ogni account Windows, con esportazione e importazione.
 - Ricerca automatica della telecamera e del flusso video, installer per Windows.
 
-[Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.3.0...HEAD
+[Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.1.0

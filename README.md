@@ -19,9 +19,9 @@ PTZ Hub gives you live preview, joystick, zoom and focus, and **presets** you re
 - **Live preview** over RTSP (ffmpeg included) or USB, rule-of-thirds grid, 180° rotation for ceiling mounts.
 - **Manual control**: proportional joystick, arrow keys (Shift = slow), zoom, auto/manual focus, Home, **STOP** (`Esc` or `Space`).
 - **Made for live shows**: always-on-top window, safety stop on release, on focus loss and on quit; a recall in progress is interrupted by STOP.
-- **Reduced views** *(1.4)*: **Compact** column always on top, or a **Side** tab docked to the left or right edge of the screen that opens on mouse hover.
+- **Reduced views**: **Compact** column always on top, or a **Side** tab docked to the left or right edge of the screen that opens on mouse hover.
 - **Automatic discovery**: finds cameras on the network (ONVIF WS-Discovery + scan), detects the protocol and the video stream address.
-- **Hub for OBS, Stream Deck and macro keyboards**: a dock for OBS, a web address for every function (Stream Deck, Bitfocus Companion), global keys for every function, and a **Stream Deck plugin** with thumbnails, names and an "on air" light on the keys *(1.4)*. Everything goes through the program, so all of them show the same active preset. Details in [docs/comandi-esterni.md](docs/comandi-esterni.md) (Italian).
+- **Hub for OBS, Stream Deck and macro keyboards**: a dock for OBS, a web address for every function (Stream Deck, Bitfocus Companion), global keys for every function, and a **Stream Deck plugin** with thumbnails, names and an "on air" light on the keys. Everything goes through the program, so all of them show the same active preset. Details in [docs/comandi-esterni.md](docs/comandi-esterni.md) (Italian).
 - **Italian and English**, chosen automatically from the system language.
 
 ## Supported cameras
@@ -57,6 +57,11 @@ A portable version (`…-portable-win-x64.zip`) is also available.
    `xattr -cr "/Applications/PTZ Hub.app"` (for versions up to 1.3: `"/Applications/PTZ Panel.app"`),
    otherwise macOS says the app "is damaged".
 4. On the first camera search allow access to the local network.
+
+### Stream Deck
+1. Download `PTZ-Hub.streamDeckPlugin` from [Releases](https://github.com/Redmango-Agency/PTZhub/releases) and double-click it.
+2. In PTZ Hub › Settings › External control copy the OBS panel address and paste it into any PTZ Hub key in Stream Deck: host, port and key are filled in for you.
+3. Drag "Preset" and "Command" keys onto the deck. Details: [streamdeck/README.md](streamdeck/README.md) (Italian).
 
 ### Updates
 At startup and then once a day the program asks GitHub for the latest published version. If there's a newer one, a "Download" notice appears at the top and opens the release page: the program never downloads or installs anything by itself, so nothing changes during an event. You can turn the check off in Settings.

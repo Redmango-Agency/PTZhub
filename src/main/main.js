@@ -21,8 +21,21 @@ const { t } = I18N;
 const IS_MAC = process.platform === 'darwin';
 const APP_TITLE = 'PTZ Hub'; // nome mostrato nelle finestre
 
-app.setName('PTZ Panel');
-app.setPath('userData', path.join(app.getPath('appData'), 'PTZ Panel'));
+app.setName(APP_TITLE);
+const DATA_DIR = path.join(app.getPath('appData'), 'PTZ Hub');
+// Fino alla 1.3 il programma si chiamava PTZ Panel: al primo avvio di PTZ Hub si copiano
+// impostazioni e inquadrature dell'account (la vecchia cartella resta come copia di sicurezza).
+try {
+  const OLD_DATA_DIR = path.join(app.getPath('appData'), 'PTZ Panel');
+  if (!fs.existsSync(path.join(DATA_DIR, 'impostazioni.json')) && fs.existsSync(path.join(OLD_DATA_DIR, 'impostazioni.json'))) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    for (const f of ['impostazioni.json', 'preset.json', 'preset.json.bak']) {
+      const src = path.join(OLD_DATA_DIR, f);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(DATA_DIR, f));
+    }
+  }
+} catch (_) { /* si parte con impostazioni nuove */ }
+app.setPath('userData', DATA_DIR);
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -633,12 +646,12 @@ function registerIpc() {
   ipcMain.handle('presets:export', async (_e, list) => {
     const r = await dialog.showSaveDialog(win, {
       title: t('main.exportTitle'),
-      defaultPath: path.join(app.getPath('documents'), `ptz-panel-presets-${os.userInfo().username}.json`),
+      defaultPath: path.join(app.getPath('documents'), `ptz-hub-presets-${os.userInfo().username}.json`),
       filters: [{ name: t('main.fileFilter'), extensions: ['json'] }],
     });
     if (r.canceled || !r.filePath) return null;
     fs.writeFileSync(r.filePath, JSON.stringify({
-      version: 1, app: 'PTZ Panel', exportedBy: os.userInfo().username, exportedAt: new Date().toISOString(), presets: list,
+      version: 1, app: 'PTZ Hub', exportedBy: os.userInfo().username, exportedAt: new Date().toISOString(), presets: list,
     }, null, 2));
     return r.filePath;
   });
@@ -815,7 +828,7 @@ app.whenReady().then(() => {
   hub = new Hub({ store, getCamera: () => camera, getCamStatus: () => camStatus });
   hub.on('active', (id) => send('preset:active', id));
   hub.on('stopped', () => send('hotkey', { type: 'stop' }));
-  control = new ControlServer(hub);
+  control = new ControlServer(hub, { app: APP_TITLE, version: APP_VERSION });
   control.on('status', (st) => { apiStatus = st; sendMain('api:status', st); });
   registerIpc();
   createWindow();

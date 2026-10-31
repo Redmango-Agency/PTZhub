@@ -1,6 +1,6 @@
 'use strict';
 // Impostazioni e preset salvati nella cartella dati dell'account Windows corrente
-// (%APPDATA%\PTZ Panel): ogni account ha i suoi preset.
+// (%APPDATA%\PTZ Hub): ogni account ha i suoi preset.
 
 const fs = require('fs');
 const path = require('path');

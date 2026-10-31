@@ -29,9 +29,10 @@ function safeEqual(a, b) {
 }
 
 class ControlServer extends EventEmitter {
-  constructor(hub) {
+  constructor(hub, info = {}) {
     super();
     this.hub = hub;
+    this.info = info;
     this.server = null;
     this.clients = new Set();
     this.opts = null;
@@ -44,7 +45,8 @@ class ControlServer extends EventEmitter {
   }
 
   publicState(st = this.hub.state()) {
-    return { ...st, lang: I18N.getLang() };
+    // app e version: Stream Deck e altri client riconoscono PTZ Hub e la sua versione
+    return { app: this.info.app || 'PTZ Hub', version: this.info.version || '', ...st, lang: I18N.getLang() };
   }
 
   setStatus(state, detail = '') {

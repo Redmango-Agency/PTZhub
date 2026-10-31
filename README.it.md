@@ -19,9 +19,9 @@ PTZ Hub ti dà anteprima dal vivo, joystick, zoom e fuoco, e **inquadrature** ch
 - **Anteprima video** RTSP (ffmpeg incluso) o USB, griglia dei terzi, rotazione 180° per montaggio a soffitto.
 - **Comandi manuali**: joystick con velocità proporzionale, frecce (Maiusc = lento), zoom, fuoco automatico/manuale, Home, **STOP** (`Esc` o `Spazio`).
 - **Pensato per la diretta**: finestra sempre in primo piano, stop di sicurezza al rilascio, alla perdita del fuoco e alla chiusura; STOP interrompe anche un richiamo in corso.
-- **Viste ridotte** *(1.4)*: colonna **Compatta** sempre in primo piano, oppure linguetta **Laterale** agganciata al bordo sinistro o destro dello schermo che si apre al passaggio del mouse.
+- **Viste ridotte**: colonna **Compatta** sempre in primo piano, oppure linguetta **Laterale** agganciata al bordo sinistro o destro dello schermo che si apre al passaggio del mouse.
 - **Ricerca automatica**: trova le telecamere in rete (ONVIF WS-Discovery + scansione), rileva il protocollo e l'indirizzo del flusso video.
-- **Centro operativo per OBS, Stream Deck e tastiere macro**: pannello da agganciare in OBS, indirizzo web per ogni funzione (Stream Deck, Bitfocus Companion), tasti globali per ogni funzione e **plugin per Stream Deck** con miniatura, nome e luce «in onda» sui tasti *(1.4)*. Tutto passa dal programma, quindi tutti vedono la stessa inquadratura attiva. Dettagli in [docs/comandi-esterni.md](docs/comandi-esterni.md).
+- **Centro operativo per OBS, Stream Deck e tastiere macro**: pannello da agganciare in OBS, indirizzo web per ogni funzione (Stream Deck, Bitfocus Companion), tasti globali per ogni funzione e **plugin per Stream Deck** con miniatura, nome e luce «in onda» sui tasti. Tutto passa dal programma, quindi tutti vedono la stessa inquadratura attiva. Dettagli in [docs/comandi-esterni.md](docs/comandi-esterni.md).
 - **Italiano e inglese**, scelti in automatico dalla lingua del sistema.
 
 ## Telecamere compatibili
@@ -57,6 +57,11 @@ C'è anche una versione portatile (`…-portable-win-x64.zip`).
    `xattr -cr "/Applications/PTZ Hub.app"` (per le versioni fino alla 1.3: `"/Applications/PTZ Panel.app"`),
    altrimenti macOS dice che l'app «è danneggiata».
 4. Alla prima ricerca della telecamera consenti l'accesso alla rete locale.
+
+### Stream Deck
+1. Scarica `PTZ-Hub.streamDeckPlugin` dalle [Releases](https://github.com/Redmango-Agency/PTZhub/releases) e aprilo con un doppio clic.
+2. In PTZ Hub › Impostazioni › Comandi esterni copia l'indirizzo del pannello OBS e incollalo in un tasto PTZ Hub di Stream Deck: computer, porta e chiave si compilano da soli.
+3. Trascina sulla tastiera i tasti «Inquadratura» e «Comando». Dettagli: [streamdeck/README.md](streamdeck/README.md).
 
 ### Aggiornamenti
 All'avvio e poi una volta al giorno il programma chiede a GitHub qual è l'ultima versione pubblicata. Se ce n'è una più recente compare in alto l'avviso «Scarica», che apre la pagina della release: il programma non scarica e non installa nulla da solo, così durante un evento non cambia niente. Il controllo si spegne nelle Impostazioni.

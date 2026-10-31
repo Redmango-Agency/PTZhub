@@ -78,7 +78,7 @@ async function checkForUpdate({ repo, current, fetch: fetchImpl, apiBase = API_B
   const res = await withTimeout(fetchImpl(url, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': `PTZ-Panel/${current}`,
+      'User-Agent': `PTZ-Hub/${current}`,
       'X-GitHub-Api-Version': '2022-11-28',
     },
     signal: ctrl ? ctrl.signal : undefined,

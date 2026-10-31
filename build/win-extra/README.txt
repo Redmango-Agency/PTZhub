@@ -2,12 +2,12 @@ PTZ PANEL — control panel for network PTZ cameras
 ==================================================
 
 INSTALLATION
-1. Run "PTZ-Panel-Setup-<version>.exe": the app is installed for all
+1. Run "PTZ-Hub-Setup-<version>.exe": the app is installed for all
    accounts on this PC, with Start menu and desktop shortcuts. The installer
    also opens the Windows firewall for the camera.
 2. Windows may show "Windows protected your PC" (the app is not signed):
    click "More info" > "Run anyway".
-   Portable version (zip): extract it and run "PTZ Panel.exe"; if the
+   Portable version (zip): extract it and run "PTZ Hub.exe"; if the
    firewall asks, allow both private and public networks.
 
 FIRST SETUP (once per account)
@@ -43,7 +43,7 @@ Settings > "External control" (the app must be open):
 Everything goes through the app: the active preset is the same everywhere.
 
 WHERE DATA IS STORED
-%APPDATA%\PTZ Panel (impostazioni.json and preset.json), one per account.
+%APPDATA%\PTZ Hub (impostazioni.json and preset.json), one per account.
 Presets can be exported and imported from Settings.
 
 License: MIT. Source code and updates: see the project page on GitHub.

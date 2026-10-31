@@ -50,7 +50,7 @@ async function main() {
   assert.strictEqual(r.latest, '1.4.0');
   assert.strictEqual(r.url, 'https://github.com/mario/ptz-panel/releases/tag/v1.4.0');
   assert.strictEqual(lastReq.url, '/repos/mario/ptz-panel/releases/latest');
-  assert.match(lastReq.headers['user-agent'], /^PTZ-Panel\/1\.3\.0$/);
+  assert.match(lastReq.headers['user-agent'], /^PTZ-Hub\/1\.3\.0$/);
   ok('nuova versione trovata');
 
   r = await check('1.4.0');
