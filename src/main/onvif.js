@@ -95,6 +95,12 @@ async function httpRequest(url, { method = 'GET', body, headers = {}, user, pass
   return { status: res.status, text, headers: res.headers };
 }
 
+function cancelledError() {
+  const e = new Error('cancelled');
+  e.code = 'CANCELLED';
+  return e;
+}
+
 class OnvifClient {
   constructor({ host, port = 80, user = '', pass = '' }) {
     this.host = host;
@@ -405,10 +411,12 @@ class OnvifCamera extends EventEmitter {
     return { kind: 'onvif', x, y, zoom: Number.isNaN(zoom) ? null : zoom };
   }
 
-  async gotoPosition(pos, speed01 = 1) {
+  async gotoPosition(pos, speed01 = 1, cancelled = null) {
     if (!pos || pos.kind !== 'onvif') throw new Error(t('onvif.incompatible'));
     // uno stop ancora in coda non deve interrompere il richiamo
     await this._waitIdle();
+    // ma se nel frattempo è arrivato STOP (o un altro comando) il richiamo non parte più
+    if (cancelled && cancelled()) throw cancelledError();
     const s = clamp(speed01, 0.05, 1).toFixed(2);
     const zoomPart = pos.zoom == null ? '' : `<tt:Zoom x="${pos.zoom}"/>`;
     const zoomSpeed = pos.zoom == null ? '' : '<tt:Zoom x="1"/>';
@@ -421,8 +429,9 @@ class OnvifCamera extends EventEmitter {
     await this.c.ptz(`<tptz:SetPreset>${this.c.pt()}<tptz:PresetName>PTZPanel-${n}</tptz:PresetName><tptz:PresetToken>${n}</tptz:PresetToken></tptz:SetPreset>`);
   }
 
-  async recallSlot(n) {
+  async recallSlot(n, cancelled = null) {
     await this._waitIdle();
+    if (cancelled && cancelled()) throw cancelledError();
     await this.c.ptz(`<tptz:GotoPreset>${this.c.pt()}<tptz:PresetToken>${n}</tptz:PresetToken></tptz:GotoPreset>`);
   }
 }

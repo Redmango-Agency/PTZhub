@@ -45,6 +45,13 @@ const ERROR_KEYS = {
   0x01: 'visca.e01', 0x02: 'visca.e02', 0x03: 'visca.e03', 0x04: 'visca.e04', 0x05: 'visca.e05', 0x41: 'visca.e41',
 };
 
+// errore "annullato": il richiamo è stato superato da STOP o da un altro comando
+function cancelledError() {
+  const e = new Error('cancelled');
+  e.code = 'CANCELLED';
+  return e;
+}
+
 class ViscaTransport extends EventEmitter {
   constructor({ host, port, mode, address = 1 }) {
     super();
@@ -358,8 +365,9 @@ class ViscaCamera extends EventEmitter {
   }
 
   // comando controllato; se la camera è occupata (buffer pieno) si ritenta per ~3 s
-  async _cmd(body, { retries = 25, delay = 120 } = {}) {
+  async _cmd(body, { retries = 25, delay = 120, cancelled = null } = {}) {
     for (let i = 0; ; i++) {
+      if (cancelled && cancelled()) throw cancelledError();
       try {
         await this.t.sendChecked(body);
         return true;
@@ -483,7 +491,7 @@ class ViscaCamera extends EventEmitter {
   }
 
   // speed01 in (0, 1]
-  async gotoPosition(pos, speed01 = 1) {
+  async gotoPosition(pos, speed01 = 1, cancelled = null) {
     if (!pos || pos.kind !== 'visca') throw new Error(t('visca.incompatible'));
     this._ensureLink();
     this.lastDrive = null;
@@ -494,17 +502,24 @@ class ViscaCamera extends EventEmitter {
     const manual = pos.focusAuto === false && pos.focus != null;
     // ordine: pan/tilt (parte subito), modalità fuoco, zoom, fuoco manuale.
     // Ogni comando che la camera rifiuta perché occupata viene ritentato.
-    const warn = (what, e) => this.emit('log', t('visca.recall', { what: t(`visca.what.${what}`), error: e.message }));
+    // cancelled(): vero se è arrivato STOP o un altro comando; i passi che mancano non partono
+    const opt = { cancelled };
+    const soft = async (what, body) => {
+      try {
+        await this._cmd(body, opt);
+      } catch (e) {
+        if (e.code === 'CANCELLED') throw e;
+        this.emit('log', t('visca.recall', { what: t(`visca.what.${what}`), error: e.message }));
+      }
+    };
     await this._cmd([
       0x01, 0x06, 0x02, ps, ts,
       ...toNibbles(pos.pan.raw, pos.pan.digits),
       ...toNibbles(pos.tilt.raw, pos.tilt.digits),
-    ]);
-    try { await this._cmd([0x01, 0x04, 0x38, manual ? 0x03 : 0x02]); } catch (e) { warn('focusMode', e); }
-    try { await this._cmd([0x01, 0x04, 0x47, ...toNibbles(pos.zoom, 4)]); } catch (e) { warn('zoom', e); }
-    if (manual) {
-      try { await this._cmd([0x01, 0x04, 0x48, ...toNibbles(pos.focus, 4)]); } catch (e) { warn('focus', e); }
-    }
+    ], opt);
+    await soft('focusMode', [0x01, 0x04, 0x38, manual ? 0x03 : 0x02]);
+    await soft('zoom', [0x01, 0x04, 0x47, ...toNibbles(pos.zoom, 4)]);
+    if (manual) await soft('focus', [0x01, 0x04, 0x48, ...toNibbles(pos.focus, 4)]);
   }
 
   async saveSlot(n) {
@@ -512,12 +527,12 @@ class ViscaCamera extends EventEmitter {
     await this._cmd([0x01, 0x04, 0x3f, 0x01, clamp(n | 0, 0, 254)]);
   }
 
-  async recallSlot(n) {
+  async recallSlot(n, cancelled = null) {
     this._ensureLink();
     this.lastDrive = null;
     this.lastZoom = null;
     this.lastFocus = null;
-    await this._cmd([0x01, 0x04, 0x3f, 0x02, clamp(n | 0, 0, 254)]);
+    await this._cmd([0x01, 0x04, 0x3f, 0x02, clamp(n | 0, 0, 254)], { cancelled });
   }
 }
 

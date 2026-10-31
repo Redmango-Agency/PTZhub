@@ -277,3 +277,30 @@ body.editing #btnCompact { display: none; }
 .ed-name input { color: var(--text); font-size: 15px; padding: 9px 11px; }
 #edSave { min-width: 190px; }
 .dlg label.lang-row { max-width: 320px; }
+
+/* Comandi esterni */
+.dlg label.xlan { align-self: end; padding-bottom: 8px; }
+#xObsUrl { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.note.warn { color: var(--warn); }
+.cmd-table { display: flex; flex-direction: column; gap: 4px; }
+.cmd-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 190px auto auto; gap: 8px; align-items: center;
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: #12141a;
+}
+.cmd-row .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-row .label .num { display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-right: 6px; border-radius: 4px; background: #0c0e12; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 700; }
+.key-chip { font-family: ui-monospace, Consolas, monospace; font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px dashed var(--line-2); color: var(--muted); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-chip.set { border-style: solid; color: var(--text); background: #0c0e12; }
+.key-chip.capturing { border-color: var(--accent); color: var(--accent-2); animation: blink 1s infinite; }
+.cmd-row .btns { display: flex; gap: 6px; }
+.cmd-row button { padding: 5px 9px; font-size: 12.5px; }
+
+/* avviso aggiornamento */
+.update-pill { display: inline-flex; align-items: center; gap: 2px; background: rgba(10, 132, 255, .16); border: 1px solid rgba(10, 132, 255, .35); border-radius: 999px; padding: 2px 4px 2px 12px; }
+.update-pill[hidden] { display: none; }
+.update-pill button { background: transparent; border: 0; color: #64b5ff; cursor: pointer; }
+.update-pill .link { font-size: 12.5px; font-weight: 600; padding: 4px 4px; }
+.update-pill .link:hover { text-decoration: underline; }
+.update-pill .x { width: 24px; height: 24px; border-radius: 50%; font-size: 15px; line-height: 1; padding: 0; }
+.update-pill .x:hover { background: rgba(10, 132, 255, .2); }
+.upd-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }

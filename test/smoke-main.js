@@ -3,7 +3,7 @@
 // un'inquadratura, cattura schermate. Uso: xvfb-run electron test/smoke-main.js <cartellaOutput>
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
+const { app, BrowserWindow } = require('electron');
 
 const outDir = process.argv[process.argv.length - 1];
 const logs = [];
@@ -13,7 +13,10 @@ const shot = async (win, name) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+let mainSeen = false;
 app.on('browser-window-created', (_e, win) => {
+  if (mainSeen) return; // solo la finestra principale
+  mainSeen = true;
   win.webContents.on('console-message', (...a) => {
     const ev = a[0];
     const msg = ev && ev.message !== undefined ? `${ev.level}: ${ev.message}` : a.slice(1).join(' ');
@@ -95,6 +98,63 @@ app.on('browser-window-created', (_e, win) => {
       await shot(win, '5-rilevamento');
       await js("document.querySelector('#dlgSettings').close('cancel')");
       await sleep(300);
+
+      // comandi esterni: elenco funzioni e assegnazione di un tasto
+      await js("document.querySelector('#btnSettings').click()");
+      await sleep(400);
+      await js("document.querySelector('#xCommands').scrollIntoView()");
+      await sleep(200);
+      await shot(win, '7-comandi-esterni');
+      await js("document.querySelector('#xCommands').click()");
+      await sleep(600);
+      await js("document.querySelector('.cmd-row .b-assign').click()");
+      await sleep(200);
+      await js("window.dispatchEvent(new KeyboardEvent('keydown', {key:'q', code:'KeyQ', ctrlKey:true, altKey:true, bubbles:true}))");
+      await sleep(800);
+      result.assignedKey = await js("document.querySelector('.cmd-row .key-chip').textContent");
+      await shot(win, '8-funzioni-e-tasti');
+      await js("document.querySelector('#dlgCommands').close('close'); document.querySelector('#dlgSettings').close('cancel')");
+      await sleep(300);
+
+      // pannello OBS: pagina servita dal programma, aperta come farebbe OBS
+      const info = await js('window.ptz.apiInfo()');
+      result.obsUrl = info.obsUrl.replace(/k=.*/, 'k=…');
+      const dock = new BrowserWindow({ width: 340, height: 620, show: true, webPreferences: { sandbox: true } });
+      await dock.loadURL(info.obsUrl);
+      await sleep(1500);
+      result.dockCards = await dock.webContents.executeJavaScript("document.querySelectorAll('.card').length");
+      await dock.webContents.executeJavaScript("document.querySelectorAll('.card')[1].click()");
+      await sleep(1000);
+      result.activeAfterDock = await js("document.querySelector('.preset.active .name')?.textContent");
+      result.dockActive = await dock.webContents.executeJavaScript("document.querySelector('.card.active .name')?.textContent");
+      const img = await dock.webContents.capturePage();
+      fs.writeFileSync(path.join(outDir, '9-pannello-obs.png'), img.toPNG());
+
+      // "Stream Deck": semplice richiesta all'indirizzo della prima inquadratura
+      await new Promise((resolve) => {
+        require('http').get(`${info.base}/api/recall/1?k=${info.token}`, (res) => { res.resume(); res.on('end', resolve); });
+      });
+      await sleep(800);
+      result.activeAfterUrl = await js("document.querySelector('.preset.active .name')?.textContent");
+      result.dockActiveAfterUrl = await dock.webContents.executeJavaScript("document.querySelector('.card.active .name')?.textContent");
+      dock.destroy();
+
+      // aggiornamenti: il finto GitHub (PTZ_UPDATE_API) pubblica una versione più recente
+      if (process.env.PTZ_UPDATE_API) {
+        result.updatePill = await js("document.querySelector('#updatePill').hidden ? '' : document.querySelector('#btnUpdate').textContent");
+        await shot(win, '5b-aggiornamento');
+        await js("document.querySelector('#btnUpdateLater').click()");
+        result.updatePillAfterLater = await js("document.querySelector('#updatePill').hidden");
+        await js("document.querySelector('#btnSettings').click()");
+        await sleep(400);
+        await js("document.querySelector('#btnCheckUpdate').click()");
+        await sleep(1200);
+        result.updateStatusText = await js("document.querySelector('#updStatus').textContent");
+        result.updatePillAgain = await js("!document.querySelector('#updatePill').hidden");
+        await shot(win, '5c-aggiornamento-impostazioni');
+        await js("document.querySelector('#dlgSettings').close('cancel')");
+        await sleep(300);
+      }
 
       await js("document.querySelector('#btnCompact').click()");
       await sleep(1000);

@@ -32,6 +32,16 @@ USE
   Ctrl+Alt+1…0 recall, Ctrl+Alt+S stop.
 - Settings > Language: Italian or English (automatic by default).
 
+OBS, STREAM DECK, MACRO KEYBOARDS
+Settings > "External control" (the app must be open):
+- OBS dock: copy "Address for the OBS dock"; in OBS go to Docks > Custom
+  Browser Docks, paste it and give it a name.
+- Stream Deck / Companion: "Functions and keys…" > "Copy address" on the
+  function; in Stream Deck use the "Website" action with background access.
+- Macro keyboards: "Functions and keys…" > "Assign" and press the
+  combination (with Ctrl or Alt, or F13–F24), then program the keyboard.
+Everything goes through the app: the active preset is the same everywhere.
+
 WHERE DATA IS STORED
 %APPDATA%\PTZ Panel (impostazioni.json and preset.json), one per account.
 Presets can be exported and imported from Settings.

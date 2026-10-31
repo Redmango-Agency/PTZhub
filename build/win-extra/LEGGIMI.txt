@@ -38,6 +38,16 @@ USO
   Ctrl+Alt+1…0 richiama, Ctrl+Alt+S ferma, anche se l'app è in secondo piano.
 - Impostazioni > Lingua: italiano o inglese (in automatico come Windows).
 
+OBS, STREAM DECK, TASTIERE MACRO
+Impostazioni > "Comandi esterni" (il programma deve essere aperto):
+- Pannello in OBS: copia "Indirizzo per il pannello di OBS"; in OBS vai su
+  Pannelli > Pannelli browser personalizzati, incolla e dai un nome.
+- Stream Deck / Companion: "Funzioni e tasti…" > "Copia indirizzo" sulla
+  funzione; in Stream Deck usa l'azione "Sito web" con accesso in background.
+- Tastiere macro: "Funzioni e tasti…" > "Assegna" e premi la combinazione
+  (con Ctrl o Alt, oppure F13–F24), poi programma la tastiera per inviarla.
+Tutto passa dal programma: l'inquadratura attiva è la stessa ovunque.
+
 DOVE SONO I DATI
 %APPDATA%\PTZ Panel (impostazioni.json e preset.json), uno per account.
 Da Impostazioni si possono esportare e importare le inquadrature.

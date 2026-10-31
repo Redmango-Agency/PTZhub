@@ -14,6 +14,10 @@
       <span id="camDetail" class="muted"></span>
     </div>
     <div class="account muted"><span data-i18n="top.account">Account</span> <b id="account"></b></div>
+    <div class="update-pill compact-hide" id="updatePill" hidden>
+      <button id="btnUpdate" class="link" data-i18n-title="up.availableTitle"></button>
+      <button id="btnUpdateLater" class="x" data-i18n-title="up.later" aria-label="×">×</button>
+    </div>
     <div class="spacer"></div>
     <button id="btnCompact" class="ghost" data-i18n-title="top.compactTitle">Compatta</button>
     <button id="btnPin" class="ghost toggle" data-i18n="top.pin" data-i18n-title="top.pinTitle">In primo piano</button>
@@ -198,6 +202,28 @@
       </fieldset>
 
       <fieldset>
+        <legend data-i18n="x.title">Comandi esterni</legend>
+        <label class="check"><input type="checkbox" id="xEnable"> <span data-i18n="x.enable"></span></label>
+        <div class="grid2">
+          <label><span data-i18n="x.port">Porta</span> <input id="xPort" type="number" min="1024" max="65535"></label>
+          <label class="check xlan"><input type="checkbox" id="xLan"> <span data-i18n="x.lan"></span></label>
+          <p class="muted small" id="xLanWarn" data-i18n="x.lanWarn" hidden></p>
+        </div>
+        <label><span data-i18n="x.obsUrl"></span>
+          <div class="inline">
+            <input id="xObsUrl" readonly>
+            <button type="button" id="xCopyObs" data-i18n="x.copy">Copia</button>
+          </div>
+        </label>
+        <p class="note" data-i18n="x.obsHelp"></p>
+        <div class="inline">
+          <button type="button" id="xCommands" data-i18n="x.commands"></button>
+          <button type="button" id="xNewKey" class="ghost" data-i18n="x.newKey"></button>
+          <span class="muted small" id="xStatus"></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
         <legend data-i18n="s.event">Durante l’evento</legend>
         <label class="check"><input type="checkbox" id="sGlobal"> <span data-i18n="s.global"></span></label>
         <label class="lang-row"><span data-i18n="s.language">Lingua</span>
@@ -209,6 +235,15 @@
         </label>
       </fieldset>
 
+      <fieldset>
+        <legend data-i18n="up.legend">Aggiornamenti</legend>
+        <label class="check"><input type="checkbox" id="sUpdates"> <span data-i18n="up.check"></span></label>
+        <div class="upd-row">
+          <button type="button" id="btnCheckUpdate" class="ghost" data-i18n="up.checkNow">Controlla ora</button>
+          <span class="muted small" id="updStatus"></span>
+        </div>
+      </fieldset>
+
       <p class="muted small" id="aboutLine"></p>
       <div class="actions rev">
         <button id="btnSaveSettings" value="save" class="primary" data-i18n="common.save">Salva</button>
@@ -218,6 +253,19 @@
   </dialog>
 
 
+
+  <!-- Funzioni richiamabili da Stream Deck, Companion, tastiere macro -->
+  <dialog id="dlgCommands" class="dlg wide">
+    <form method="dialog">
+      <h2 data-i18n="c.title">Funzioni</h2>
+      <p class="note" data-i18n="c.help"></p>
+      <p class="note warn" id="cmdApiOff" hidden data-i18n="c.apiOff"></p>
+      <div class="cmd-table" id="cmdTable"></div>
+      <div class="actions">
+        <button value="close" class="primary" data-i18n="c.close">Chiudi</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- Scelta generica -->
   <dialog id="dlgChoice" class="dlg">

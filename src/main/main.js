@@ -4,14 +4,18 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const {
-  app, BrowserWindow, ipcMain, globalShortcut, dialog, shell, screen,
+  app, BrowserWindow, ipcMain, globalShortcut, dialog, shell, screen, clipboard, net,
 } = require('electron');
 const { Store, DEFAULT_PORTS } = require('./store');
 const { ViscaCamera } = require('./visca');
 const { OnvifCamera } = require('./onvif');
 const { Preview, testUrl } = require('./preview');
 const probe = require('./probe');
+const { Hub } = require('./hub');
+const { ControlServer } = require('./control');
 const I18N = require('../shared/i18n');
+const updates = require('./updates');
+const PKG = require('../../package.json');
 
 const { t } = I18N;
 
@@ -33,6 +37,22 @@ let previewStatus = { state: 'off', detail: '' };
 let frameInFlight = false;
 let frameSentAt = 0;
 let normalBounds = null;
+let hub = null;
+let control = null;
+let apiStatus = { state: 'off', detail: '' };
+
+// Aggiornamenti: repository GitHub da cui si scarica il programma (vuoto = controllo spento)
+// PTZ_UPDATE_REPO / PTZ_UPDATE_API servono solo ai test automatici
+const TEST_ENV = app.isPackaged ? {} : process.env;
+const UPDATE_REPO = updates.repoFromPackage(TEST_ENV.PTZ_UPDATE_REPO
+  ? { ptzPanel: { updateRepo: TEST_ENV.PTZ_UPDATE_REPO } } : PKG);
+const UPDATE_API = TEST_ENV.PTZ_UPDATE_API || updates.API_BASE;
+const UPDATE_EVERY_MS = 24 * 60 * 60 * 1000;
+const APP_VERSION = PKG.version; // come app.getVersion() nel programma installato, anche nei test
+let updateStatus = { state: UPDATE_REPO ? 'idle' : 'disabled' };
+let updateTimer = null;
+let updateRunning = null;
+let updateGen = 0; // cambia quando si riprogramma: le catene di controlli vecchie si fermano
 
 const send = (ch, data) => {
   if (win && !win.isDestroyed()) win.webContents.send(ch, data);
@@ -70,7 +90,7 @@ function startCamera() {
     send('cam:status', camStatus);
     return;
   }
-  camera.on('status', (s) => { camStatus = s; send('cam:status', s); });
+  camera.on('status', (s) => { camStatus = s; send('cam:status', s); if (hub) hub.changed(); });
   camera.on('log', (m) => send('cam:log', m));
   camera.connect().catch((e) => {
     camStatus = { state: 'error', detail: e.message };
@@ -107,21 +127,60 @@ function startPreview() {
 // ---------------------------------------------------------------------------
 // Scorciatoie globali (funzionano anche con un altro programma in primo piano)
 
+function runSafe(promiseOrValue) {
+  Promise.resolve().then(() => promiseOrValue()).catch((e) => send('cam:log', e.message));
+}
+
 function applyGlobalHotkeys() {
   globalShortcut.unregisterAll();
-  if (!store.settings.globalHotkeys) return { ok: true, failed: [] };
   const failed = [];
-  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
-  keys.forEach((k, i) => {
-    const acc = `Control+Alt+${k}`;
-    const ok = globalShortcut.register(acc, () => send('hotkey', { type: 'preset', index: i }));
+  const used = new Set();
+  const reg = (acc, fn) => {
+    if (!acc || used.has(acc)) return;
+    used.add(acc);
+    let ok = false;
+    try { ok = globalShortcut.register(acc, fn); } catch (_) { ok = false; }
     if (!ok) failed.push(acc);
-  });
-  if (!globalShortcut.register('Control+Alt+S', () => {
-    if (camera) camera.stopAll();
-    send('hotkey', { type: 'stop' });
-  })) failed.push('Control+Alt+S');
+  };
+  // tasti assegnati dall'utente alle singole funzioni (tastiere macro, Stream Deck in modalità tasto)
+  const valid = new Set(hub.actionIds());
+  for (const [action, acc] of Object.entries(store.settings.shortcuts || {})) {
+    if (valid.has(action)) reg(acc, () => runSafe(() => hub.run(action)));
+  }
+  if (store.settings.globalHotkeys) {
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].forEach((k, i) => {
+      reg(`Control+Alt+${k}`, () => runSafe(() => hub.recallIndex(i + 1)));
+    });
+    reg('Control+Alt+S', () => runSafe(() => hub.stop()));
+  }
   return { ok: failed.length === 0, failed };
+}
+
+// ---------------------------------------------------------------------------
+// Collegamento esterno (pannello OBS, Stream Deck, Companion)
+
+async function startControl() {
+  const a = store.settings.api;
+  if (!a.enabled) {
+    await control.stop();
+    return;
+  }
+  await control.start({ port: Number(a.port) || 8765, lan: !!a.lan, token: a.token });
+}
+
+function apiInfo() {
+  const a = store.settings.api;
+  const base = `http://127.0.0.1:${Number(a.port) || 8765}`;
+  return {
+    status: apiStatus,
+    enabled: !!a.enabled,
+    port: Number(a.port) || 8765,
+    lan: !!a.lan,
+    token: a.token,
+    base,
+    obsUrl: `${base}/obs?k=${a.token}`,
+    actions: hub.actionIds(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +240,7 @@ function createWindow() {
   // se l'interfaccia va in crash, la testa si ferma e la pagina si ricarica
   win.webContents.on('render-process-gone', () => {
     if (camera) camera.stopAll();
+    if (hub) hub.setEditing(false); // l'editor si è chiuso con la pagina: i richiami esterni ripartono
     setTimeout(() => { if (win && !win.isDestroyed()) win.webContents.reload(); }, 1000);
   });
   if (compact) {
@@ -206,36 +266,131 @@ function setCompact(on) {
 }
 
 // ---------------------------------------------------------------------------
+// Aggiornamenti: si controlla poco dopo l'avvio e poi una volta al giorno; si avvisa soltanto
+
+function runUpdateCheck() {
+  if (!UPDATE_REPO) {
+    updateStatus = { state: 'disabled' };
+    return Promise.resolve(updateStatus);
+  }
+  if (updateRunning) return updateRunning;
+  updateStatus = { ...updateStatus, state: 'checking' };
+  send('update:status', updateStatus);
+  updateRunning = updates.checkForUpdate({
+    repo: UPDATE_REPO,
+    current: APP_VERSION,
+    fetch: (url, init) => net.fetch(url, init),
+    apiBase: UPDATE_API,
+  }).then((r) => r, (e) => ({ state: 'error', current: APP_VERSION, detail: updateErrorText(e) }))
+    .then((r) => {
+      updateStatus = { ...r, checkedAt: Date.now() };
+      updateRunning = null;
+      send('update:status', updateStatus);
+      return updateStatus;
+    });
+  return updateRunning;
+}
+
+function updateErrorText(e) {
+  const code = e && e.code;
+  if (code === 'rate') return t('up.err.rate');
+  if (code === 'http') return t('up.err.http', { status: e.status });
+  if (code === 'badVersion') return t('up.err.badVersion');
+  if (code === 'timeout' || (e && e.name === 'AbortError')) return t('up.err.timeout');
+  return t('up.err.network');
+}
+
+function scheduleUpdateChecks() {
+  clearTimeout(updateTimer);
+  updateTimer = null;
+  updateGen += 1;
+  const gen = updateGen;
+  if (!UPDATE_REPO || !store.settings.updates.check) return;
+  const envDelay = Number(TEST_ENV.PTZ_UPDATE_DELAY_MS);
+  const first = TEST_ENV.PTZ_UPDATE_DELAY_MS && envDelay >= 0 ? envDelay : 20000;
+  const tick = () => {
+    if (gen !== updateGen) return;
+    runUpdateCheck().finally(() => {
+      if (gen === updateGen && store.settings.updates.check) updateTimer = setTimeout(tick, UPDATE_EVERY_MS);
+    });
+  };
+  updateTimer = setTimeout(tick, first);
+}
+
+// ---------------------------------------------------------------------------
 // IPC
 
 function registerIpc() {
-  ipcMain.handle('init', () => ({
+  ipcMain.handle('init', () => {
+    // pagina appena caricata (o ricaricata): non c'è nessun editor aperto
+    hub.setEditing(false);
+    return initData();
+  });
+  const initData = () => ({
     settings: store.settings,
     presets: store.presets,
+    activeId: hub.activeId,
     camStatus,
     previewStatus,
     info: {
       user: os.userInfo().username,
       dataDir: app.getPath('userData'),
-      version: app.getVersion(),
+      version: APP_VERSION,
       platform: process.platform,
       lang: I18N.getLang(),
     },
-  }));
+    update: updateStatus,
+  });
 
-  ipcMain.handle('settings:save', (_e, partial) => {
+  ipcMain.handle('settings:save', async (_e, partial) => {
     const before = JSON.stringify(store.settings.camera);
     const beforePrev = JSON.stringify(store.settings.preview);
+    const beforeApi = JSON.stringify(store.settings.api);
+    const beforeUpd = JSON.stringify(store.settings.updates);
     const s = store.saveSettings(partial || {});
     I18N.setLang(I18N.resolve(s.language, app.getLocale()));
     if (JSON.stringify(s.camera) !== before) startCamera();
     if (JSON.stringify(s.preview) !== beforePrev) startPreview();
     if (win) win.setAlwaysOnTop(!!s.alwaysOnTop, 'floating');
+    if (JSON.stringify(s.api) !== beforeApi) await startControl();
+    if (JSON.stringify(s.updates) !== beforeUpd) scheduleUpdateChecks();
+    hub.changed();
     const hk = applyGlobalHotkeys();
     return { settings: s, hotkeys: hk };
   });
 
-  ipcMain.handle('presets:save', (_e, list) => store.savePresets(list));
+  ipcMain.handle('presets:save', (_e, list) => {
+    const r = store.savePresets(list);
+    // i tasti delle inquadrature che non esistono più si tolgono anche dalle impostazioni
+    const ids = new Set(r.map((p) => p.id));
+    const sc = store.settings.shortcuts || {};
+    const clean = Object.fromEntries(Object.entries(sc).filter(([a]) => !a.startsWith('preset:') || ids.has(a.slice(7))));
+    if (Object.keys(clean).length !== Object.keys(sc).length) {
+      store.saveSettings({ shortcuts: clean });
+      send('settings:changed', store.settings);
+    }
+    hub.presetsChanged();
+    applyGlobalHotkeys(); // i tasti delle inquadrature eliminate si liberano
+    return r;
+  });
+
+  ipcMain.handle('cam:recallPreset', async (_e, id, speed, opts) => {
+    // dall'editor il richiamo passa anche con la modifica in corso
+    const p = await hub.recallId(id, speed, { force: !!(opts && opts.editor) });
+    return p ? { id: p.id } : { id: null, superseded: true };
+  });
+  ipcMain.on('ui:editing', (_e, on) => hub.setEditing(!!on));
+  // inquadratura appena salvata: la camera è lì, tutti (OBS, successiva/precedente) lo sanno
+  ipcMain.on('cam:setActive', (_e, id) => {
+    hub.setActive(store.presets.some((p) => p.id === id) ? id : null);
+  });
+  ipcMain.handle('api:info', () => apiInfo());
+  ipcMain.handle('api:newToken', async () => {
+    store.saveSettings({ api: { token: Store.newToken() } });
+    await startControl();
+    return apiInfo();
+  });
+  ipcMain.handle('app:copy', (_e, text) => { clipboard.writeText(String(text)); return true; });
 
   ipcMain.handle('presets:export', async (_e, list) => {
     const r = await dialog.showSaveDialog(win, {
@@ -272,8 +427,8 @@ function registerIpc() {
         case 'focus': camera.focus(args[0]); break;
         case 'focusAuto': camera.setFocusAuto(!!args[0]); break;
         case 'onePush': camera.focusOnePush(); break;
-        case 'home': camera.home(); break;
-        case 'stop': camera.stopAll(); break;
+        case 'home': hub.home(); break;
+        case 'stop': hub.stop(); break;
         default: break;
       }
     } catch (e) {
@@ -287,7 +442,6 @@ function registerIpc() {
     await new Promise((r) => setTimeout(r, 250)); // la testa si ferma prima della lettura
     return c.getPosition();
   });
-  ipcMain.handle('cam:goto', (_e, pos, speed) => requireCamera().gotoPosition(pos, speed));
   ipcMain.handle('cam:saveSlot', (_e, n) => requireCamera().saveSlot(n));
   ipcMain.handle('cam:recallSlot', (_e, n) => requireCamera().recallSlot(n));
 
@@ -354,6 +508,13 @@ function registerIpc() {
 
   ipcMain.handle('app:setCompact', (_e, on) => { setCompact(!!on); return store.settings.compact; });
   ipcMain.handle('app:openDataFolder', () => shell.openPath(app.getPath('userData')));
+  ipcMain.handle('update:check', () => runUpdateCheck());
+  ipcMain.handle('update:open', () => {
+    const url = updateStatus && updateStatus.url;
+    if (!updates.isSafeReleaseUrl(url, UPDATE_REPO)) return false;
+    shell.openExternal(url);
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -371,11 +532,18 @@ app.whenReady().then(() => {
   store = new Store(app.getPath('userData'), sharedDefaults, os.userInfo().username);
   I18N.setLang(I18N.resolve(store.settings.language, app.getLocale()));
   if (store.settings.compact) normalBounds = store.settings.bounds;
+  hub = new Hub({ store, getCamera: () => camera, getCamStatus: () => camStatus });
+  hub.on('active', (id) => send('preset:active', id));
+  hub.on('stopped', () => send('hotkey', { type: 'stop' }));
+  control = new ControlServer(hub);
+  control.on('status', (st) => { apiStatus = st; send('api:status', st); });
   registerIpc();
   createWindow();
   startCamera();
   startPreview();
   applyGlobalHotkeys();
+  startControl().catch((e) => { apiStatus = { state: 'error', detail: e.message }; });
+  scheduleUpdateChecks();
 });
 
 // In uscita si manda lo stop e si aspetta che parta prima di chiudere i socket
@@ -385,7 +553,10 @@ app.on('will-quit', (e) => {
   e.preventDefault();
   quitting = true;
   globalShortcut.unregisterAll();
+  clearTimeout(updateTimer);
+  updateGen += 1;
   preview.stop();
+  if (control) control.stop().catch(() => {});
   const c = camera;
   camera = null;
   const stop = c ? Promise.resolve().then(() => c.disconnect()).catch(() => {}) : Promise.resolve();

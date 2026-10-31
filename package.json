@@ -1,16 +1,19 @@
 {
   "name": "ptz-panel",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Pannello di controllo per telecamere PTZ via rete (VISCA over IP, ONVIF): anteprima, joystick e inquadrature per ogni account Windows",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test/visca.test.js && node test/onvif.test.js",
+    "test": "node test/visca.test.js && node test/onvif.test.js && node test/control.test.js && node test/hub.test.js && node test/updates.test.js",
     "rileva": "node tools/rileva-camera.js",
     "dist:win": "electron-builder --win --x64 --publish never",
     "ffmpeg:win": "node scripts/fetch-ffmpeg.js win32-x64"
   },
   "author": "Redmango S.r.l.",
+  "ptzPanel": {
+    "updateRepo": ""
+  },
   "license": "MIT",
   "devDependencies": {
     "electron": "^45.2.1",

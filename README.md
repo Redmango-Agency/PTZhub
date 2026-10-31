@@ -14,6 +14,7 @@ Pannello di controllo gratuito per Windows per telecamere **PTZ** (testa mobile)
 - **Pensato per la diretta**: finestra sempre in primo piano, modalità compatta, stop di sicurezza su rilascio, perdita di fuoco della finestra e chiusura.
 - **Ricerca automatica**: trova le telecamere in rete (ONVIF WS-Discovery + scansione), rileva il protocollo e l'indirizzo del flusso video.
 - **Italiano e inglese**: lingua scelta in automatico da Windows, modificabile nelle Impostazioni.
+- **Centro operativo per OBS, Stream Deck e tastiere macro**: pannello da agganciare in OBS, indirizzi web per ogni funzione (Stream Deck, Bitfocus Companion) e tasti globali assegnabili a ogni funzione. Tutti passano dal programma e vedono la stessa inquadratura attiva. Dettagli in [docs/comandi-esterni.md](docs/comandi-esterni.md).
 
 ## Telecamere compatibili
 
@@ -40,6 +41,10 @@ Il supporto è in fase di collaudo: se la provi con il tuo modello, apri una *Is
 
 C'è anche una versione portatile (`…-portable-win-x64.zip`) da estrarre e avviare senza installazione.
 
+### Aggiornamenti
+
+All'avvio e poi una volta al giorno il programma chiede a GitHub qual è l'ultima versione pubblicata. Se ce n'è una più recente compare in alto «Nuova versione … · Scarica», che apre la pagina della release: il programma non scarica e non installa nulla da solo, così durante un evento non cambia niente. Il controllo si spegne in Impostazioni → Aggiornamenti (lì c'è anche «Controlla ora»). L'unica informazione inviata è la versione installata, nell'intestazione della richiesta.
+
 ## Primo utilizzo
 
 1. **Impostazioni** → «Cerca in rete» e clicca la telecamera (oppure scrivi l'IP e premi «Rileva protocollo»).
@@ -61,6 +66,8 @@ node tools/rileva-camera.js [--ip 192.168.1.50]   # diagnosi della rete da riga 
 
 Su GitHub l'installer viene creato automaticamente (GitHub Actions su Windows) a ogni tag `v*` e pubblicato nelle Releases.
 
+Per il controllo aggiornamenti, `package.json` → `ptzPanel.updateRepo` indica il repository (`proprietario/nome`); se è vuoto il controllo è spento. Pubblica le release con tag `vX.Y.Z` uguale alla versione del `package.json`: le pre-release non vengono proposte.
+
 ### Struttura
 
 ```
@@ -69,6 +76,10 @@ src/main/onvif.js     client ONVIF (PTZ, Media, Imaging)
 src/main/probe.js     ricerca telecamere e rilevamento protocolli
 src/main/preview.js   anteprima RTSP tramite ffmpeg
 src/main/store.js     impostazioni e inquadrature per account
+src/main/hub.js       centro operativo: richiami, impulsi, STOP, stato condiviso
+src/main/control.js   collegamento locale per OBS, Stream Deck e Companion
+src/main/updates.js   controllo nuove versioni su GitHub (avvisa soltanto)
+src/control/          pannello per OBS
 src/main/main.js      processo principale Electron
 src/shared/i18n.js    testi in italiano e inglese (per aggiungere una lingua basta un dizionario)
 src/renderer/         interfaccia

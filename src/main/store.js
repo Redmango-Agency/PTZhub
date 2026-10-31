@@ -4,6 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const DEFAULT_SETTINGS = {
   camera: {
@@ -29,6 +30,17 @@ const DEFAULT_SETTINGS = {
   moveSpeed: 0.6,
   recallSpeed: 0.7,
   language: 'auto', // auto = come Windows; oppure 'it' / 'en'
+  // collegamento esterno: pannello OBS, Stream Deck, Companion, tastiere macro
+  api: {
+    enabled: true,
+    port: 8765,
+    lan: false,
+    token: '',
+  },
+  updates: {
+    check: true, // controlla su GitHub se è uscita una nuova versione (avvisa soltanto)
+  },
+  shortcuts: {}, // funzione -> combinazione globale, es. { "stop": "F13", "preset:<id>": "Control+Alt+Shift+A" }
   alwaysOnTop: false,
   globalHotkeys: false,
   compact: false,
@@ -89,15 +101,28 @@ class Store {
       s = (sharedDefaultsFile && readJson(sharedDefaultsFile)) || {};
       delete s.bounds;
       delete s.compact;
+      delete s.shortcuts; // i tasti fanno riferimento alle inquadrature di un altro account
+      if (s.api) delete s.api.token;
       s.slotBase = slotBaseFor(username);
     }
     this.settings = merge(DEFAULT_SETTINGS, s);
+    if (!this.settings.api.token) {
+      // chiave dell'account per gli indirizzi esterni: impedisce a pagine web estranee di comandare la camera
+      this.settings.api.token = Store.newToken();
+      try { writeJsonAtomic(this.settingsFile, this.settings); } catch (_) { /* si riprova al prossimo salvataggio */ }
+    }
     const p = readJson(this.presetsFile) || readJson(`${this.presetsFile}.bak`);
     this.presets = Array.isArray(p?.presets) ? p.presets : [];
   }
 
+  static newToken() {
+    return crypto.randomBytes(9).toString('base64url');
+  }
+
   saveSettings(partial) {
     this.settings = merge(this.settings, partial);
+    // l'elenco dei tasti si sostituisce per intero (così un tasto rimosso sparisce davvero)
+    if (partial && partial.shortcuts) this.settings.shortcuts = { ...partial.shortcuts };
     writeJsonAtomic(this.settingsFile, this.settings);
     return this.settings;
   }

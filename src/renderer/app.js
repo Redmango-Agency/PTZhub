@@ -116,15 +116,21 @@ function setMove(x, y) {
   else { clearTimeout(moveTimer); moveTimer = setTimeout(flush, 50 - (now - moveSentAt)); }
 }
 
-function stopAll() {
+// riporta a riposo joystick, pulsanti e tasti (senza mandare comandi)
+function resetManualUi() {
   clearTimeout(moveTimer);
   moveTarget = { x: 0, y: 0 };
   moveActive = false;
   zoomActive = false;
   focusActive = false;
   keys.clear();
+  joyPointer = null;
   $$('.hold.pressed').forEach((b) => b.classList.remove('pressed'));
   resetKnob();
+}
+
+function stopAll() {
+  resetManualUi();
   ptz.cmd('stop');
 }
 
@@ -494,13 +500,13 @@ function renderPresets() {
   });
 }
 
-async function recall(p) {
+// il richiamo passa dal centro operativo del programma, come quelli da OBS e Stream Deck
+async function recall(p, opts) {
   if (!p) return;
   stopManualOnly();
   try {
-    if (p.pos) await ptz.goto(p.pos, settings.recallSpeed);
-    else if (p.slot != null) await ptz.recallSlot(p.slot);
-    else throw new Error(t('presets.noPosition'));
+    const r = await ptz.recallPreset(p.id, settings.recallSpeed, opts);
+    if (!r || !r.id) return; // superato da STOP o da un altro comando
     activeId = p.id;
     if (p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
     renderPresets();
@@ -591,13 +597,18 @@ async function openEditor(id = null) {
   renderEditor();
   if (document.activeElement) document.activeElement.blur(); // le frecce muovono la camera
   if (camState.state !== 'connected') toast(t('ed.notConnected'), 'warn', 6000);
-  if (p) await recall(p); // si parte dalla posizione salvata, poi la si ritocca
+  // da qui i richiami esterni (OBS, Stream Deck, tasti) restano in attesa;
+  // il richiamo dell'editor stesso passa comunque
+  ptz.setEditing(true);
+  if (p) await recall(p, { editor: true }); // si parte dalla posizione salvata, poi la si ritocca
+  if (!editor) ptz.setEditing(false); // editor chiuso mentre la camera arrivava
 }
 
 async function closeEditor() {
   if (!editor) return;
   const back = editor.wasCompact;
   editor = null;
+  ptz.setEditing(false);
   document.body.classList.remove('editing');
   renderPresets();
   if (back) {
@@ -637,6 +648,7 @@ async function saveEditor() {
   }
   activeId = p.id;
   await persist();
+  ptz.setActive(p.id); // la camera è su questa inquadratura: lo sanno anche OBS e successiva/precedente
   const idx = presets.indexOf(p);
   const msg = t(existing ? 'presets.updated' : 'presets.saved', { name: p.name });
   toast(idx < 10 ? t('presets.withKey', { text: msg, key: HOTKEYS[idx] }) : msg, 'ok');
@@ -704,6 +716,13 @@ function fillSettingsForm() {
   $('#discoverOut').innerHTML = '';
   $('#rtspOut').innerHTML = '';
   $('#sLanguage').value = settings.language || 'auto';
+  $('#xEnable').checked = !!settings.api.enabled;
+  $('#xPort').value = settings.api.port || 8765;
+  $('#xLan').checked = !!settings.api.lan;
+  $('#xLanWarn').hidden = !settings.api.lan;
+  $('#sUpdates').checked = !settings.updates || settings.updates.check !== false;
+  renderUpdate(updateState);
+  refreshApiInfo();
   $('#aboutLine').textContent = t('s.about', { version: info.version, user: info.user, dir: info.dataDir });
   updateFormVisibility();
   if (p.source === 'usb') listUsbDevices(p.usbDeviceId);
@@ -937,6 +956,12 @@ $('#dlgSettings').addEventListener('close', async () => {
     slotBase: clamp(Number($('#sSlotBase').value) || 0, 0, 240),
     globalHotkeys: $('#sGlobal').checked,
     language: $('#sLanguage').value,
+    api: {
+      enabled: $('#xEnable').checked,
+      port: clamp(Number($('#xPort').value) || 8765, 1024, 65535),
+      lan: $('#xLan').checked,
+    },
+    updates: { check: $('#sUpdates').checked },
   };
   const langChanged = partial.language !== (settings.language || 'auto');
   const prevSource = `${settings.preview.source}|${settings.preview.usbDeviceId}`;
@@ -955,6 +980,231 @@ $('#dlgSettings').addEventListener('close', async () => {
   } catch (e) {
     toast(t('s.notSaved', { error: errMsg(e) }), 'err');
   }
+});
+
+$('#xLan').addEventListener('change', () => { $('#xLanWarn').hidden = !$('#xLan').checked; });
+
+// ---------------------------------------------------------------------------
+// Aggiornamenti: avviso discreto in alto quando su GitHub c'è una versione più recente
+
+let updateState = null;
+let updateDismissed = false; // «più tardi»: l'avviso torna al prossimo avvio
+
+function updateText(st) {
+  if (!st) return '';
+  switch (st.state) {
+    case 'checking': return t('up.checking');
+    case 'available': return t('up.newer', { v: st.latest });
+    case 'current': return t('up.current', { v: st.current || info.version });
+    case 'none': return t('up.none');
+    case 'error': return t('up.error', { error: st.detail || '' });
+    case 'disabled': return t('up.disabled');
+    default: return '';
+  }
+}
+
+function renderUpdate(st) {
+  if (st) updateState = st;
+  const s = updateState;
+  const show = !!s && s.state === 'available' && !updateDismissed;
+  $('#updatePill').hidden = !show;
+  if (show) $('#btnUpdate').textContent = t('up.available', { v: s.latest });
+  $('#updStatus').textContent = updateText(s);
+  $('#btnCheckUpdate').disabled = !!s && (s.state === 'checking' || s.state === 'disabled');
+}
+
+$('#btnUpdate').addEventListener('click', () => { ptz.openUpdate(); });
+$('#btnUpdateLater').addEventListener('click', () => { updateDismissed = true; renderUpdate(); });
+$('#btnCheckUpdate').addEventListener('click', async () => {
+  renderUpdate({ state: 'checking' });
+  const r = await ptz.checkUpdate().catch((e) => ({ state: 'error', detail: errMsg(e) }));
+  updateDismissed = false;
+  renderUpdate(r);
+});
+
+// ---------------------------------------------------------------------------
+// Comandi esterni: pannello OBS, indirizzi per Stream Deck/Companion, tasti globali
+
+let api = null; // informazioni del collegamento (indirizzi, chiave, stato)
+
+function renderApiStatus(st) {
+  const el = $('#xStatus');
+  if (!el || !st) return;
+  el.textContent = st.state === 'on' ? t('x.statusOn', { addr: st.detail })
+    : st.state === 'error' ? t('x.statusError', { error: st.detail }) : t('x.statusOff');
+}
+
+async function refreshApiInfo() {
+  api = await ptz.apiInfo();
+  $('#xObsUrl').value = api.obsUrl;
+  renderApiStatus(api.status);
+  return api;
+}
+
+async function copyText(text) {
+  await ptz.copy(text);
+  toast(t('x.copied'), 'ok', 2000);
+}
+
+const ACTION_PATHS = {
+  stop: 'stop', home: 'home', next: 'next', prev: 'prev', onepush: 'onepush',
+  'zoom:in': 'zoom/in', 'zoom:out': 'zoom/out',
+  'nudge:up': 'nudge/up', 'nudge:down': 'nudge/down', 'nudge:left': 'nudge/left', 'nudge:right': 'nudge/right',
+};
+
+const FIXED_ACTIONS_UI = Object.keys(ACTION_PATHS);
+
+function actionUrl(action) {
+  const path = action.startsWith('preset:')
+    ? `recall/id/${encodeURIComponent(action.slice(7))}`
+    : ACTION_PATHS[action];
+  return `${api.base}/api/${path}?k=${encodeURIComponent(api.token)}`;
+}
+
+function actionLabel(action) {
+  if (action.startsWith('preset:')) {
+    const p = presets.find((x) => x.id === action.slice(7));
+    return t('a.preset', { name: p ? p.name : '?' });
+  }
+  return t(`a.${action}`);
+}
+
+// Combinazione per i tasti globali (formato Electron) a partire dal tasto premuto
+const SPECIAL_KEYS = {
+  Space: 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+  PageUp: 'PageUp', PageDown: 'PageDown', Home: 'Home', End: 'End', Insert: 'Insert', Delete: 'Delete',
+  NumpadAdd: 'numadd', NumpadSubtract: 'numsub', NumpadMultiply: 'nummult', NumpadDivide: 'numdiv', NumpadDecimal: 'numdec',
+};
+function accelFromEvent(e) {
+  const c = e.code;
+  let key = null;
+  if (/^Key[A-Z]$/.test(c)) key = c.slice(3);
+  else if (/^Digit\d$/.test(c)) key = c.slice(5);
+  else if (/^F(\d{1,2})$/.test(c) && Number(c.slice(1)) <= 24) key = c;
+  else if (/^Numpad\d$/.test(c)) key = `num${c.slice(6)}`;
+  else if (SPECIAL_KEYS[c]) key = SPECIAL_KEYS[c];
+  if (!key) return { pending: true }; // solo modificatori: si aspetta il tasto
+  const extraF = /^F(1[3-9]|2[0-4])$/.test(key);
+  if (!extraF && !e.ctrlKey && !e.altKey && !e.metaKey) return { error: t('c.needModifier') };
+  const mods = [];
+  if (e.ctrlKey) mods.push('Control');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  if (e.metaKey) mods.push('Super');
+  return { accel: [...mods, key].join('+') };
+}
+
+let capture = null; // { action, chip }
+
+function stopCapture() {
+  if (!capture) return;
+  window.removeEventListener('keydown', capture.handler, true);
+  capture = null;
+  renderCommands();
+}
+
+// combinazioni che Windows e quasi tutti i programmi usano già: un tasto globale le "ruberebbe"
+const RESERVED = new Set([
+  ...'ACVXZYSFPWNTOR'.split('').map((k) => `Control+${k}`),
+  'Alt+F4', 'Alt+Tab', 'Alt+Space', 'Control+Alt+Delete', 'Control+Shift+Escape', 'Control+Escape',
+  'Control+Shift+Z', 'Control+Shift+S', 'Control+Shift+N', 'Control+Shift+T',
+]);
+
+function validActions() {
+  return [...FIXED_ACTIONS_UI, ...presets.map((p) => `preset:${p.id}`)];
+}
+
+async function saveShortcut(action, accel) {
+  const valid = new Set(validActions());
+  const sc = Object.fromEntries(Object.entries(settings.shortcuts || {}).filter(([a]) => valid.has(a)));
+  if (accel) sc[action] = accel; else delete sc[action];
+  const r = await ptz.saveSettings({ shortcuts: sc });
+  settings = r.settings;
+  if (accel && r.hotkeys && r.hotkeys.failed.includes(accel)) {
+    toast(t('s.hotkeysBusy', { keys: accel }), 'warn', 6000);
+  } else if (accel) {
+    toast(t('c.saved', { key: accel }), 'ok', 2500);
+  }
+  renderCommands();
+}
+
+function startCapture(action, chip) {
+  stopCapture();
+  chip.textContent = t('c.press');
+  chip.classList.add('capturing');
+  const handler = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === 'Escape') { stopCapture(); return; }
+    const r = accelFromEvent(e);
+    if (r.pending) return;
+    if (r.error) { toast(r.error, 'warn', 5000); return; }
+    if (RESERVED.has(r.accel)) { toast(t('c.reserved', { key: r.accel }), 'warn', 5000); return; }
+    const valid = new Set(validActions());
+    const other = Object.entries(settings.shortcuts || {}).find(([a, k]) => k === r.accel && a !== action && valid.has(a));
+    const fixed = settings.globalHotkeys && (/^Control\+Alt\+\d$/.test(r.accel) || r.accel === 'Control+Alt+S');
+    if (other || fixed) {
+      toast(t('c.taken', { name: other ? actionLabel(other[0]) : t('s.global') }), 'warn', 5000);
+      return;
+    }
+    const act = capture.action;
+    stopCapture();
+    saveShortcut(act, r.accel);
+  };
+  capture = { action, handler };
+  window.addEventListener('keydown', handler, true);
+}
+
+function renderCommands() {
+  const box = $('#cmdTable');
+  if (!box || !api) return;
+  $('#cmdApiOff').hidden = !!settings.api.enabled;
+  const actions = [...api.actions.filter((a) => !a.startsWith('preset:')),
+    ...presets.map((p) => `preset:${p.id}`)];
+  box.innerHTML = '';
+  actions.forEach((action) => {
+    const row = document.createElement('div');
+    row.className = 'cmd-row';
+    const idx = action.startsWith('preset:') ? presets.findIndex((p) => `preset:${p.id}` === action) : -1;
+    const num = idx >= 0 ? `<span class="num">${idx < 10 ? HOTKEYS[idx] : '·'}</span>` : '';
+    const accel = (settings.shortcuts || {})[action];
+    row.innerHTML = `<div class="label" title="${esc(actionLabel(action))}">${num}${esc(actionLabel(action))}</div>`
+      + `<div class="key-chip${accel ? ' set' : ''}">${esc(accel || '—')}</div>`
+      + `<div class="btns"><button type="button" class="b-assign">${esc(t('c.assign'))}</button>`
+      + `${accel ? `<button type="button" class="b-clear ghost" title="${esc(t('c.clear'))}">✕</button>` : ''}</div>`
+      + `<button type="button" class="b-url ghost">${esc(t('c.copyUrl'))}</button>`;
+    const chip = row.querySelector('.key-chip');
+    row.querySelector('.b-assign').addEventListener('click', () => startCapture(action, chip));
+    const clr = row.querySelector('.b-clear');
+    if (clr) clr.addEventListener('click', () => saveShortcut(action, null));
+    row.querySelector('.b-url').addEventListener('click', () => copyText(actionUrl(action)));
+    box.appendChild(row);
+  });
+  if (capture) {
+    // dopo un ridisegno la cattura in corso riparte sulla riga giusta
+    const i = actions.indexOf(capture.action);
+    const chip = box.querySelectorAll('.key-chip')[i];
+    if (chip) { chip.textContent = t('c.press'); chip.classList.add('capturing'); }
+  }
+}
+
+$('#xCopyObs').addEventListener('click', () => copyText($('#xObsUrl').value));
+$('#xCommands').addEventListener('click', async () => {
+  await refreshApiInfo();
+  renderCommands();
+  $('#dlgCommands').showModal();
+});
+$('#dlgCommands').addEventListener('close', () => stopCapture());
+$('#xNewKey').addEventListener('click', async () => {
+  const r = await choice(t('x.newKeyTitle'), t('x.newKeyText'), [
+    { label: t('common.cancel'), value: 'no', className: 'ghost' },
+    { label: t('x.newKey'), value: 'yes', className: 'primary' },
+  ]);
+  if (r !== 'yes') return;
+  api = await ptz.newApiToken();
+  settings.api.token = api.token;
+  $('#xObsUrl').value = api.obsUrl;
+  renderApiStatus(api.status);
 });
 
 // ---------------------------------------------------------------------------
@@ -987,6 +1237,7 @@ $('#btnCompact').addEventListener('click', async () => {
   const s = await ptz.init();
   settings = s.settings;
   presets = s.presets || [];
+  activeId = s.activeId || null;
   info = s.info;
   window.I18N.setLang(info.lang);
   document.documentElement.lang = info.lang;
@@ -1010,9 +1261,19 @@ $('#btnCompact').addEventListener('click', async () => {
   });
   ptz.onCamLog((m) => toast(m, 'warn'));
   ptz.onHotkey((h) => {
-    if (h.type === 'preset' && !editor) recall(presets[h.index]);
-    if (h.type === 'stop') stopAll();
+    if (h.type === 'stop') resetManualUi(); // lo stop è già partito: si sistema solo l'interfaccia
   });
+  // inquadratura richiamata da OBS, Stream Deck, tasti globali o da questa finestra
+  ptz.onActive((id) => {
+    activeId = id;
+    const p = presets.find((x) => x.id === id);
+    if (p && p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
+    if (!editor) renderPresets();
+  });
+  ptz.onApiStatus((st) => renderApiStatus(st));
+  renderUpdate(s.update || null);
+  ptz.onUpdateStatus((st) => renderUpdate(st));
+  ptz.onSettingsChanged((s2) => { settings = s2; });
 
   if (!settings.camera.host) {
     fillSettingsForm();
