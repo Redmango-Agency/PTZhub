@@ -1,0 +1,174 @@
+{
+  "name": "ptz-panel",
+  "version": "1.3.0",
+  "description": "Pannello di controllo per telecamere PTZ via rete (VISCA over IP, ONVIF): anteprima, joystick e inquadrature per ogni account Windows",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/visca.test.js && node test/onvif.test.js && node test/control.test.js && node test/hub.test.js && node test/updates.test.js",
+    "rileva": "node tools/rileva-camera.js",
+    "dist:win": "electron-builder --win --x64 --publish never",
+    "ffmpeg:win": "node scripts/fetch-ffmpeg.js win32-x64"
+  },
+  "author": "Redmango S.r.l.",
+  "ptzPanel": {
+    "updateRepo": ""
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "ffmpeg-static": "^5.3.0",
+    "resedit": "^3.1.0"
+  },
+  "productName": "PTZ Panel",
+  "private": true,
+  "build": {
+    "appId": "agency.redmango.ptzpanel",
+    "productName": "PTZ Panel",
+    "copyright": "Redmango S.r.l.",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg/win32-x64",
+          "to": "ffmpeg",
+          "filter": [
+            "ffmpeg.exe"
+          ]
+        },
+        {
+          "from": "build/licenses/ffmpeg-GPL-3.0.txt",
+          "to": "ffmpeg/LICENSE.txt"
+        }
+      ],
+      "extraFiles": [
+        {
+          "from": "build/win-extra",
+          "to": ".",
+          "filter": [
+            "LEGGIMI.txt",
+            "README.txt"
+          ]
+        },
+        {
+          "from": "LICENSE",
+          "to": "LICENSE.txt"
+        },
+        {
+          "from": "THIRD_PARTY_NOTICES.md",
+          "to": "THIRD_PARTY_NOTICES.md"
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "PTZ-Panel-${version}-portable-win-x64.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.video",
+      "icon": "build/icon.png",
+      "identity": null,
+      "darkModeSupport": true,
+      "minimumSystemVersion": "11.0",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "PTZ Panel comanda le telecamere sulla rete locale. / PTZ Panel controls cameras on the local network.",
+        "NSCameraUsageDescription": "Anteprima di una telecamera collegata via USB. / Preview of a camera connected via USB."
+      },
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg/darwin-${arch}",
+          "to": "ffmpeg",
+          "filter": [
+            "ffmpeg"
+          ]
+        },
+        {
+          "from": "build/licenses/ffmpeg-GPL-3.0.txt",
+          "to": "ffmpeg/LICENSE.txt"
+        }
+      ],
+      "artifactName": "PTZ-Panel-${version}-mac-${arch}.${ext}"
+    },
+    "afterPack": "build/after-pack.js",
+    "electronLanguages": [
+      "it",
+      "en-US"
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "PTZ Panel",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "installerLanguages": [
+        "en_US",
+        "it_IT"
+      ],
+      "language": "1040",
+      "multiLanguageInstaller": true,
+      "include": "build/installer.nsh",
+      "artifactName": "PTZ-Panel-Setup-${version}.${ext}",
+      "displayLanguageSelector": false,
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp"
+    },
+    "publish": null,
+    "dmg": {
+      "title": "PTZ Panel ${version}",
+      "contents": [
+        {
+          "x": 150,
+          "y": 190
+        },
+        {
+          "x": 410,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 560,
+        "height": 380
+      }
+    }
+  }
+}

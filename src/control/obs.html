@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PTZ Panel</title>
+  <link rel="stylesheet" href="obs.css">
+</head>
+<body>
+  <header class="bar">
+    <span class="dot" id="dot"></span>
+    <span class="cam" id="cam">PTZ Panel</span>
+    <span class="spacer"></span>
+    <button id="home" data-i18n="ctl.home">Home</button>
+    <button id="stop" class="stop" data-i18n="ctl.stop">STOP</button>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="grid" class="grid"></main>
+
+  <nav class="steps">
+    <button id="prev" data-i18n="dock.prev">◀</button>
+    <button id="next" data-i18n="dock.next">▶</button>
+  </nav>
+
+  <details id="manual">
+    <summary data-i18n="dock.manual">Comandi manuali</summary>
+    <div class="manual">
+      <div id="joy" class="joy"><div class="knob"></div></div>
+      <div class="zoom">
+        <button class="hold" data-z="1" data-i18n="ctl.tele">+</button>
+        <button class="hold" data-z="-1" data-i18n="ctl.wide">−</button>
+      </div>
+    </div>
+  </details>
+
+  <script src="i18n.js"></script>
+  <script src="obs.js"></script>
+</body>
+</html>

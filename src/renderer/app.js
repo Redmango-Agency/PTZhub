@@ -1,0 +1,1282 @@
+'use strict';
+/* global ptz */
+
+const { t } = window.I18N;
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+const PROTOCOL_LABEL = {
+  'visca-udp': 'VISCA UDP', 'visca-tcp': 'VISCA TCP', 'visca-sony': 'Sony VISCA', onvif: 'ONVIF',
+};
+const DEFAULT_PORTS = { 'visca-udp': 1259, 'visca-tcp': 5678, 'visca-sony': 52381, onvif: 80 };
+const HOTKEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+
+let settings = null;
+let presets = [];
+let info = {};
+let activeId = null;
+let camState = { state: 'disconnected', detail: '' };
+
+// ---------------------------------------------------------------------------
+// Utilità
+
+const lastToastAt = new Map();
+
+function toast(msg, kind = 'info', ms = 3800) {
+  // lo stesso messaggio non si ripete prima di 10 secondi (es. errori di rete ricorrenti)
+  const now = Date.now();
+  if (now - (lastToastAt.get(msg) || 0) < 10000) return;
+  lastToastAt.set(msg, now);
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), ms);
+}
+
+function errMsg(e) {
+  return String(e && e.message ? e.message : e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function applyI18n(root = document) {
+  root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  root.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });
+  root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+}
+
+function uid() {
+  return (crypto.randomUUID && crypto.randomUUID()) || `p${Date.now()}${Math.random().toString(16).slice(2)}`;
+}
+
+function anyDialogOpen() {
+  return $$('dialog').some((d) => d.open);
+}
+
+function choice(title, text, buttons) {
+  return new Promise((resolve) => {
+    const dlg = $('#dlgChoice');
+    $('#cTitle').textContent = title;
+    $('#cText').textContent = text;
+    const box = $('#cActions');
+    box.innerHTML = '';
+    for (const b of buttons) {
+      const btn = document.createElement('button');
+      btn.value = b.value;
+      btn.textContent = b.label;
+      btn.className = b.className || '';
+      box.appendChild(btn);
+    }
+    dlg.returnValue = '';
+    dlg.onclose = () => resolve(dlg.returnValue || null);
+    dlg.showModal();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stato camera
+
+function renderCamStatus() {
+  const el = $('#camStatus');
+  el.className = `cam-status ${camState.state}`;
+  const c = settings.camera;
+  $('#camLabel').textContent = c.host ? `${c.host} · ${PROTOCOL_LABEL[c.protocol] || c.protocol}` : t('top.notConfigured');
+  const txt = {
+    connected: t('cam.connected'),
+    connecting: t('cam.connecting'),
+    error: camState.detail || t('cam.error'),
+    disconnected: c.host ? t('cam.disconnected') : t('cam.openSettings'),
+  }[camState.state] || '';
+  $('#camDetail').textContent = txt;
+  el.title = camState.detail || '';
+}
+
+// ---------------------------------------------------------------------------
+// Movimento: joystick, tastiera, pulsanti
+
+let moveTarget = { x: 0, y: 0 };
+let moveSentAt = 0;
+let moveTimer = null;
+let moveActive = false;
+
+function setMove(x, y) {
+  moveTarget = { x, y };
+  moveActive = x !== 0 || y !== 0;
+  const now = performance.now();
+  const flush = () => {
+    moveSentAt = performance.now();
+    ptz.cmd('move', moveTarget.x, moveTarget.y);
+  };
+  if (!moveActive) { clearTimeout(moveTimer); flush(); return; }
+  if (now - moveSentAt > 50) flush();
+  else { clearTimeout(moveTimer); moveTimer = setTimeout(flush, 50 - (now - moveSentAt)); }
+}
+
+// riporta a riposo joystick, pulsanti e tasti (senza mandare comandi)
+function resetManualUi() {
+  clearTimeout(moveTimer);
+  moveTarget = { x: 0, y: 0 };
+  moveActive = false;
+  zoomActive = false;
+  focusActive = false;
+  keys.clear();
+  joyPointer = null;
+  $$('.hold.pressed').forEach((b) => b.classList.remove('pressed'));
+  resetKnob();
+}
+
+function stopAll() {
+  resetManualUi();
+  ptz.cmd('stop');
+}
+
+const joy = $('#joy');
+const knob = joy.querySelector('.knob');
+let joyPointer = null;
+
+function resetKnob() {
+  knob.style.transform = 'translate(-50%, -50%)';
+  joy.classList.remove('active');
+}
+
+function shape(v) {
+  const dz = 0.1;
+  const a = Math.abs(v);
+  if (a < dz) return 0;
+  return Math.sign(v) * ((a - dz) / (1 - dz)) ** 1.6; // più precisione vicino al centro
+}
+
+function joyUpdate(e) {
+  const r = joy.getBoundingClientRect();
+  const R = r.width / 2 - 29; // raggio utile: bordo meno metà della manopola
+  let dx = (e.clientX - (r.left + r.width / 2)) / R;
+  let dy = (e.clientY - (r.top + r.height / 2)) / R;
+  const m = Math.hypot(dx, dy);
+  if (m > 1) { dx /= m; dy /= m; }
+  knob.style.transform = `translate(calc(-50% + ${dx * R}px), calc(-50% + ${dy * R}px))`;
+  const sp = settings.moveSpeed;
+  setMove(shape(dx) * sp, -shape(dy) * sp);
+}
+
+joy.addEventListener('pointerdown', (e) => {
+  joyPointer = e.pointerId;
+  joy.setPointerCapture(e.pointerId);
+  joy.classList.add('active');
+  joyUpdate(e);
+});
+joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyPointer) joyUpdate(e); });
+const joyEnd = (e) => {
+  if (e.pointerId !== joyPointer) return;
+  joyPointer = null;
+  resetKnob();
+  setMove(0, 0);
+};
+joy.addEventListener('pointerup', joyEnd);
+joy.addEventListener('pointercancel', joyEnd);
+joy.addEventListener('lostpointercapture', joyEnd);
+
+let zoomActive = false;
+let focusActive = false;
+
+function setAfUi(on) {
+  $('#btnAF').classList.toggle('on', on);
+  $('#btnAF').textContent = on ? t('ctl.af') : t('ctl.mf');
+}
+
+for (const b of $$('.hold')) {
+  const start = (e) => {
+    e.preventDefault();
+    b.setPointerCapture(e.pointerId);
+    b.classList.add('pressed');
+    if (b.dataset.zoom) {
+      zoomActive = true;
+      ptz.cmd('zoom', Number(b.dataset.zoom) * settings.moveSpeed);
+    } else if (b.dataset.focus) {
+      focusActive = true;
+      setAfUi(false);
+      ptz.cmd('focusAuto', false);
+      ptz.cmd('focus', Number(b.dataset.focus) * 0.4);
+    }
+  };
+  const end = () => {
+    if (!b.classList.contains('pressed')) return;
+    b.classList.remove('pressed');
+    if (b.dataset.zoom) { zoomActive = false; ptz.cmd('zoom', 0); }
+    if (b.dataset.focus) { focusActive = false; ptz.cmd('focus', 0); }
+  };
+  b.addEventListener('pointerdown', start);
+  b.addEventListener('pointerup', end);
+  b.addEventListener('pointercancel', end);
+  b.addEventListener('lostpointercapture', end);
+}
+
+$('#btnAF').addEventListener('click', () => {
+  const on = !$('#btnAF').classList.contains('on');
+  setAfUi(on);
+  ptz.cmd('focusAuto', on);
+});
+$('#btnOnePush').addEventListener('click', () => ptz.cmd('onePush'));
+$('#btnHome').addEventListener('click', () => { activeId = null; renderPresets(); ptz.cmd('home'); });
+$('#btnStop').addEventListener('click', () => stopAll());
+$('#btnStopCompact').addEventListener('click', () => stopAll());
+
+// Tastiera. Ogni tasto premuto viene ricordato per codice fisico (e.code): così il
+// rilascio ferma sempre il movimento, anche se nel frattempo è cambiato Maiusc.
+const keys = new Map(); // e.code -> azione
+const isTyping = () => {
+  const a = document.activeElement;
+  if (!a) return false;
+  if (a.tagName === 'INPUT') return !['range', 'checkbox', 'radio', 'button'].includes(a.type);
+  return a.tagName === 'SELECT' || a.tagName === 'TEXTAREA';
+};
+const held = (action) => [...keys.values()].includes(action);
+
+function keyMove(shift) {
+  const x = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
+  const y = (held('up') ? 1 : 0) - (held('down') ? 1 : 0);
+  const sp = settings.moveSpeed * (shift ? 0.3 : 1);
+  setMove(x * sp, y * sp);
+}
+
+function keyZoom(shift) {
+  const z = (held('zoomIn') ? 1 : 0) - (held('zoomOut') ? 1 : 0);
+  zoomActive = z !== 0;
+  ptz.cmd('zoom', z * settings.moveSpeed * (shift ? 0.3 : 1));
+}
+
+const CODE_ACTIONS = {
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+  PageUp: 'zoomIn', NumpadAdd: 'zoomIn', PageDown: 'zoomOut', NumpadSubtract: 'zoomOut',
+};
+const KEY_ACTIONS = { '+': 'zoomIn', '-': 'zoomOut' }; // tasti +/- della tastiera principale
+
+window.addEventListener('keydown', (e) => {
+  if (anyDialogOpen() || isTyping()) return;
+  if (e.key === 'Escape' || e.code === 'Space') {
+    e.preventDefault();
+    stopAll();
+    return;
+  }
+  const action = CODE_ACTIONS[e.code] || (!e.ctrlKey && !e.altKey ? KEY_ACTIONS[e.key] : null);
+  if (action) {
+    e.preventDefault();
+    if (e.repeat || keys.has(e.code)) return;
+    keys.set(e.code, action);
+    if (action.startsWith('zoom')) keyZoom(e.shiftKey); else keyMove(e.shiftKey);
+    return;
+  }
+  if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
+    const digit = /^Digit(\d)$/.exec(e.code) || /^Numpad(\d)$/.exec(e.code);
+    if (digit && !editor) {
+      e.preventDefault();
+      const idx = HOTKEYS.indexOf(digit[1]);
+      if (presets[idx]) recall(presets[idx]);
+    }
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') e.preventDefault();
+  const action = keys.get(e.code);
+  if (!action) return;
+  keys.delete(e.code);
+  if (action.startsWith('zoom')) keyZoom(e.shiftKey); else keyMove(e.shiftKey);
+});
+
+// Se la finestra perde il fuoco durante un movimento manuale, si ferma la testa
+// (non si interrompe il richiamo di un'inquadratura già avviato)
+window.addEventListener('blur', () => {
+  if (moveActive || zoomActive || focusActive || keys.size) stopAll();
+});
+
+// Velocità
+function bindSlider(id, key) {
+  const input = $(`#${id}`);
+  const out = $(`#${id}Val`);
+  input.value = settings[key];
+  out.textContent = `${Math.round(settings[key] * 100)}%`;
+  let t = null;
+  input.addEventListener('input', () => {
+    settings[key] = Number(input.value);
+    out.textContent = `${Math.round(settings[key] * 100)}%`;
+    clearTimeout(t);
+    t = setTimeout(() => ptz.saveSettings({ [key]: settings[key] }), 400);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Anteprima
+
+const canvas = $('#video');
+const ctx = canvas.getContext('2d');
+const usbVideo = $('#usbVideo');
+let lastFrame = null; // ImageBitmap o elemento video
+let usbStream = null;
+let usbRaf = null;
+let previewState = { state: 'off', detail: '' };
+
+function fitCanvas() {
+  const r = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width * dpr));
+  const h = Math.max(1, Math.round(r.height * dpr));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+    if (lastFrame) draw(lastFrame);
+  }
+}
+new ResizeObserver(fitCanvas).observe($('#videoWrap'));
+
+function sourceSize(src) {
+  return src instanceof HTMLVideoElement ? [src.videoWidth, src.videoHeight] : [src.width, src.height];
+}
+
+function draw(src) {
+  const [sw, sh] = sourceSize(src);
+  if (!sw || !sh) return;
+  const W = canvas.width;
+  const H = canvas.height;
+  const s = Math.min(W / sw, H / sh);
+  const dw = sw * s;
+  const dh = sh * s;
+  const dx = (W - dw) / 2;
+  const dy = (H - dh) / 2;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#050608';
+  ctx.fillRect(0, 0, W, H);
+  if (settings.preview.rotate180) {
+    ctx.translate(W, H);
+    ctx.rotate(Math.PI);
+  }
+  ctx.drawImage(src, dx, dy, dw, dh);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (settings.preview.grid) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = Math.max(1, (window.devicePixelRatio || 1));
+    ctx.beginPath();
+    for (let i = 1; i < 3; i++) {
+      ctx.moveTo(dx + (dw * i) / 3, dy); ctx.lineTo(dx + (dw * i) / 3, dy + dh);
+      ctx.moveTo(dx, dy + (dh * i) / 3); ctx.lineTo(dx + dw, dy + (dh * i) / 3);
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    const cx = dx + dw / 2;
+    const cy = dy + dh / 2;
+    const k = 10 * (window.devicePixelRatio || 1);
+    ctx.moveTo(cx - k, cy); ctx.lineTo(cx + k, cy);
+    ctx.moveTo(cx, cy - k); ctx.lineTo(cx, cy + k);
+    ctx.stroke();
+  }
+}
+
+function setPreviewMsg(text) {
+  const el = $('#previewMsg');
+  el.textContent = text || '';
+  el.classList.toggle('hidden', !text);
+}
+
+function renderPreviewState() {
+  const src = settings.preview.source;
+  const live = previewState.state === 'live';
+  $('#liveBadge').classList.toggle('on', live);
+  if (src === 'none') { setPreviewMsg(t('preview.off')); return; }
+  if (live) { setPreviewMsg(''); return; }
+  if (src === 'rtsp' && !settings.preview.rtspUrl) { setPreviewMsg(t('preview.needUrl')); return; }
+  if (previewState.state === 'connecting') setPreviewMsg(t('preview.connecting'));
+  else if (previewState.state === 'error') setPreviewMsg(t('preview.error', { detail: previewState.detail }));
+  else setPreviewMsg('');
+}
+
+ptz.onFrame(async (buf) => {
+  try {
+    const bmp = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
+    if (lastFrame && lastFrame.close) lastFrame.close();
+    lastFrame = bmp;
+    draw(bmp);
+  } catch (_) {
+    // fotogramma corrotto: si salta
+  } finally {
+    ptz.ackFrame();
+  }
+});
+
+ptz.onPreviewStatus((s) => {
+  if (settings.preview.source !== 'rtsp') return;
+  previewState = s;
+  renderPreviewState();
+});
+
+async function startUsb() {
+  stopUsb();
+  try {
+    const constraints = { video: settings.preview.usbDeviceId ? { deviceId: { exact: settings.preview.usbDeviceId } } : true, audio: false };
+    usbStream = await navigator.mediaDevices.getUserMedia(constraints);
+    usbVideo.srcObject = usbStream;
+    await usbVideo.play();
+    previewState = { state: 'live', detail: '' };
+    renderPreviewState();
+    const loop = () => {
+      if (!usbStream) return;
+      lastFrame = usbVideo;
+      draw(usbVideo);
+      usbRaf = requestAnimationFrame(loop);
+    };
+    loop();
+  } catch (e) {
+    previewState = { state: 'error', detail: t('preview.usbError', { detail: e.message }) };
+    renderPreviewState();
+  }
+}
+
+function stopUsb() {
+  cancelAnimationFrame(usbRaf);
+  if (usbStream) usbStream.getTracks().forEach((t) => t.stop());
+  usbStream = null;
+  usbVideo.srcObject = null;
+}
+
+function applyPreviewSource() {
+  if (settings.preview.source === 'usb') {
+    startUsb();
+  } else {
+    stopUsb();
+    if (lastFrame instanceof HTMLVideoElement) lastFrame = null;
+    if (settings.preview.source === 'none') previewState = { state: 'off', detail: '' };
+    renderPreviewState();
+  }
+}
+
+function captureThumb() {
+  if (!lastFrame) return null;
+  const [sw, sh] = sourceSize(lastFrame);
+  if (!sw || !sh) return null;
+  const c = document.createElement('canvas');
+  c.width = 320;
+  c.height = 180;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, 320, 180);
+  const s = Math.max(320 / sw, 180 / sh);
+  if (settings.preview.rotate180) { g.translate(320, 180); g.rotate(Math.PI); }
+  g.drawImage(lastFrame, (320 - sw * s) / 2, (180 - sh * s) / 2, sw * s, sh * s);
+  return c.toDataURL('image/jpeg', 0.72);
+}
+
+// ---------------------------------------------------------------------------
+// Inquadrature
+
+function persist() {
+  return ptz.savePresets(presets).catch((e) => toast(t('presets.saveFailed', { error: errMsg(e) }), 'err'));
+}
+
+function renderPresets() {
+  const grid = $('#presetGrid');
+  grid.innerHTML = '';
+  if (!presets.length) {
+    grid.innerHTML = `<div class="empty-presets">${esc(t('presets.empty'))}</div>`;
+    return;
+  }
+  presets.forEach((p, i) => {
+    const b = document.createElement('button');
+    b.className = `preset${p.id === activeId ? ' active' : ''}`;
+    b.dataset.id = p.id;
+    b.title = i < 10 ? t('presets.withKey', { text: p.name, key: HOTKEYS[i] }) : p.name;
+    const thumb = p.thumb ? `style="background-image:url('${p.thumb}')"` : '';
+    b.innerHTML = `<div class="thumb" ${thumb}>${p.thumb ? '' : '◎'}</div>`
+      + `<div class="meta"><span class="num">${i < 10 ? HOTKEYS[i] : '·'}</span><span class="name">${esc(p.name)}</span>`
+      + `<span class="edit" title="${esc(t('presets.edit'))}">✎</span></div>`
+      + (p.slot != null ? `<span class="slot-tag">${esc(t('presets.slot', { n: p.slot }))}</span>` : '');
+    b.addEventListener('click', (e) => {
+      if (e.target.closest('.edit')) { openEditor(p.id); return; }
+      recall(p);
+    });
+    b.addEventListener('contextmenu', (e) => { e.preventDefault(); openEditor(p.id); });
+    grid.appendChild(b);
+  });
+}
+
+// il richiamo passa dal centro operativo del programma, come quelli da OBS e Stream Deck
+async function recall(p, opts) {
+  if (!p) return;
+  stopManualOnly();
+  try {
+    const r = await ptz.recallPreset(p.id, settings.recallSpeed, opts);
+    if (!r || !r.id) return; // superato da STOP o da un altro comando
+    activeId = p.id;
+    if (p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
+    renderPresets();
+  } catch (e) {
+    toast(t('presets.recallError', { name: p.name, error: errMsg(e) }), 'err');
+  }
+}
+
+// ferma solo i comandi manuali in corso, prima di un richiamo
+function stopManualOnly() {
+  // si "staccano" joystick, pulsanti e tasti tenuti premuti: al loro rilascio
+  // non deve partire uno stop che interromperebbe il richiamo
+  joyPointer = null;
+  resetKnob();
+  $$('.hold.pressed').forEach((btn) => btn.classList.remove('pressed'));
+  keys.clear();
+  if (moveActive) setMove(0, 0);
+  if (zoomActive) { zoomActive = false; ptz.cmd('zoom', 0); }
+  if (focusActive) { focusActive = false; ptz.cmd('focus', 0); }
+}
+
+function usedSlots() {
+  return new Set(presets.filter((p) => p.slot != null).map((p) => p.slot));
+}
+
+function nextFreeSlot() {
+  const used = usedSlots();
+  for (let n = Math.max(0, settings.slotBase | 0); n <= 254; n++) {
+    if (n >= 90 && n <= 99) continue; // memorie spesso riservate a funzioni speciali (menu, ecc.)
+    if (!used.has(n)) return n;
+  }
+  throw new Error(t('presets.noFreeSlot'));
+}
+
+async function captureCurrent(existingSlot = null) {
+  if (settings.presetMode === 'slot') {
+    const slot = existingSlot != null ? existingSlot : nextFreeSlot();
+    await ptz.saveSlot(slot);
+    return { pos: null, slot };
+  }
+  const pos = await ptz.getPosition();
+  return { pos, slot: null };
+}
+
+function explainCaptureError(e) {
+  const m = errMsg(e);
+  if (/nessuna risposta|posizione|non comunica|inattesa|no reply|position|unexpected/i.test(m)) {
+    return t('presets.captureHint', { error: m });
+  }
+  return m;
+}
+
+// ---------------------------------------------------------------------------
+// Editor delle inquadrature: la schermata diventa "modifica", con anteprima grande e
+// comandi della camera. Si posiziona la testa e con «Salva» si memorizzano le coordinate
+// (pan, tilt, zoom, fuoco) lette dalla camera, più una miniatura.
+
+let editor = null; // { mode: 'new' | 'edit', id, wasCompact }
+
+function editorPreset() {
+  return editor && editor.id ? presets.find((x) => x.id === editor.id) : null;
+}
+
+function renderEditor() {
+  const p = editorPreset();
+  const idx = p ? presets.indexOf(p) : -1;
+  $('#edTitle').textContent = p ? t('ed.editTitle', { name: p.name }) : t('ed.new');
+  $('#edSave').textContent = p ? t('ed.saveChanges') : t('ed.save');
+  $('#edExisting').style.display = p ? '' : 'none';
+  $('#edLeft').disabled = idx <= 0;
+  $('#edRight').disabled = idx < 0 || idx >= presets.length - 1;
+  const keyIdx = p ? idx : presets.length;
+  $('#edKey').textContent = keyIdx >= 0 && keyIdx < 10 ? t('presets.key', { key: HOTKEYS[keyIdx] }) : '';
+}
+
+async function openEditor(id = null) {
+  if (editor) return;
+  const p = id ? presets.find((x) => x.id === id) : null;
+  if (id && !p) return;
+  stopManualOnly();
+  editor = { mode: p ? 'edit' : 'new', id: p ? p.id : null, wasCompact: !!settings.compact };
+  if (settings.compact) {
+    settings.compact = await ptz.setCompact(false);
+    renderCompact();
+  }
+  document.body.classList.add('editing');
+  $('#edName').value = p ? p.name : t('presets.defaultName', { n: presets.length + 1 });
+  renderEditor();
+  if (document.activeElement) document.activeElement.blur(); // le frecce muovono la camera
+  if (camState.state !== 'connected') toast(t('ed.notConnected'), 'warn', 6000);
+  // da qui i richiami esterni (OBS, Stream Deck, tasti) restano in attesa;
+  // il richiamo dell'editor stesso passa comunque
+  ptz.setEditing(true);
+  if (p) await recall(p, { editor: true }); // si parte dalla posizione salvata, poi la si ritocca
+  if (!editor) ptz.setEditing(false); // editor chiuso mentre la camera arrivava
+}
+
+async function closeEditor() {
+  if (!editor) return;
+  const back = editor.wasCompact;
+  editor = null;
+  ptz.setEditing(false);
+  document.body.classList.remove('editing');
+  renderPresets();
+  if (back) {
+    settings.compact = await ptz.setCompact(true);
+    renderCompact();
+  }
+}
+
+async function saveEditor() {
+  if (!editor) return;
+  const btn = $('#edSave');
+  const existing = editorPreset();
+  btn.disabled = true;
+  let captured;
+  try {
+    captured = await captureCurrent(existing ? existing.slot : null);
+  } catch (e) {
+    toast(explainCaptureError(e), 'err', 7000);
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  const thumb = captureThumb();
+  const now = new Date().toISOString();
+  const name = $('#edName').value.trim() || (existing ? existing.name : t('presets.defaultName', { n: presets.length + 1 }));
+  let p = existing;
+  if (p) {
+    Object.assign(p, {
+      name, pos: captured.pos, slot: captured.slot, protocol: settings.camera.protocol, updatedAt: now,
+    });
+    if (thumb) p.thumb = thumb;
+  } else {
+    p = {
+      id: uid(), name, protocol: settings.camera.protocol, pos: captured.pos, slot: captured.slot, thumb, createdAt: now, updatedAt: now,
+    };
+    presets.push(p);
+  }
+  activeId = p.id;
+  await persist();
+  ptz.setActive(p.id); // la camera è su questa inquadratura: lo sanno anche OBS e successiva/precedente
+  const idx = presets.indexOf(p);
+  const msg = t(existing ? 'presets.updated' : 'presets.saved', { name: p.name });
+  toast(idx < 10 ? t('presets.withKey', { text: msg, key: HOTKEYS[idx] }) : msg, 'ok');
+  await closeEditor();
+}
+
+function moveEdited(delta) {
+  const p = editorPreset();
+  if (!p) return;
+  const idx = presets.indexOf(p);
+  const to = idx + delta;
+  if (to < 0 || to >= presets.length) return;
+  presets.splice(idx, 1);
+  presets.splice(to, 0, p);
+  persist();
+  renderEditor();
+}
+
+$('#btnSavePreset').addEventListener('click', () => openEditor());
+$('#edSave').addEventListener('click', saveEditor);
+$('#edCancel').addEventListener('click', () => closeEditor());
+$('#edLeft').addEventListener('click', () => moveEdited(-1));
+$('#edRight').addEventListener('click', () => moveEdited(1));
+$('#edName').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); saveEditor(); }
+  if (e.key === 'Escape') { e.preventDefault(); e.target.blur(); }
+});
+$('#edDelete').addEventListener('click', async () => {
+  const p = editorPreset();
+  if (!p) return;
+  const r = await choice(t('presets.deleteTitle'), t('presets.deleteText', { name: p.name }), [
+    { label: t('common.cancel'), value: 'no', className: 'ghost' },
+    { label: t('common.delete'), value: 'yes', className: 'danger' },
+  ]);
+  if (r !== 'yes') return;
+  presets = presets.filter((x) => x.id !== p.id);
+  if (activeId === p.id) activeId = null;
+  await persist();
+  await closeEditor();
+  toast(t('presets.deleted', { name: p.name }), 'ok');
+});
+
+// ---------------------------------------------------------------------------
+// Impostazioni
+
+function fillSettingsForm() {
+  const c = settings.camera;
+  const p = settings.preview;
+  $('#sHost').value = c.host || '';
+  $('#sProtocol').value = c.protocol;
+  $('#sPort').value = c.port || DEFAULT_PORTS[c.protocol];
+  $('#sAddress').value = c.address || 1;
+  $('#sUser').value = c.user || '';
+  $('#sPass').value = c.pass || '';
+  $('#sInvertPan').checked = !!c.invertPan;
+  $('#sInvertTilt').checked = !!c.invertTilt;
+  $('#sSource').value = p.source;
+  $('#sWidth').value = String(p.width || 960);
+  $('#sRtsp').value = p.rtspUrl || '';
+  $('#sRotate').checked = !!p.rotate180;
+  $('#sGrid').checked = !!p.grid;
+  $('#sPresetMode').value = settings.presetMode;
+  $('#sSlotBase').value = settings.slotBase;
+  $('#sGlobal').checked = !!settings.globalHotkeys;
+  $('#discoverOut').innerHTML = '';
+  $('#rtspOut').innerHTML = '';
+  $('#sLanguage').value = settings.language || 'auto';
+  $('#xEnable').checked = !!settings.api.enabled;
+  $('#xPort').value = settings.api.port || 8765;
+  $('#xLan').checked = !!settings.api.lan;
+  $('#xLanWarn').hidden = !settings.api.lan;
+  $('#sUpdates').checked = !settings.updates || settings.updates.check !== false;
+  renderUpdate(updateState);
+  refreshApiInfo();
+  $('#aboutLine').textContent = t('s.about', { version: info.version, user: info.user, dir: info.dataDir });
+  updateFormVisibility();
+  if (p.source === 'usb') listUsbDevices(p.usbDeviceId);
+}
+
+function updateFormVisibility() {
+  const src = $('#sSource').value;
+  $$('.rtsp-only').forEach((el) => { el.style.display = src === 'rtsp' ? '' : 'none'; });
+  $$('.usb-only').forEach((el) => { el.style.display = src === 'usb' ? '' : 'none'; });
+  const slot = $('#sPresetMode').value === 'slot';
+  $$('.slot-only').forEach((el) => { el.style.visibility = slot ? 'visible' : 'hidden'; });
+  const onvif = $('#sProtocol').value === 'onvif';
+  $('#sAddress').disabled = onvif;
+  $('#presetModeNote').textContent = slot ? t('s.noteSlot') : t('s.noteApp');
+}
+
+$('#sSource').addEventListener('change', () => {
+  updateFormVisibility();
+  if ($('#sSource').value === 'usb') listUsbDevices(settings.preview.usbDeviceId);
+});
+$('#sPresetMode').addEventListener('change', () => {
+  updateFormVisibility();
+  if ($('#sPresetMode').value === 'slot') {
+    toast(t('s.slotWarn', { n: $('#sSlotBase').value }), 'warn', 7000);
+  }
+});
+$('#sProtocol').addEventListener('change', () => {
+  $('#sPort').value = DEFAULT_PORTS[$('#sProtocol').value];
+  updateFormVisibility();
+});
+
+async function listUsbDevices(selected) {
+  const sel = $('#sUsb');
+  try {
+    // serve un primo accesso per leggere i nomi dei dispositivi
+    const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }).catch(() => null);
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    if (tmp) tmp.getTracks().forEach((t) => t.stop());
+    sel.innerHTML = devs.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || t('s.usbCamera', { n: i + 1 }))}</option>`).join('')
+      || `<option value="">${esc(t('s.usbNone'))}</option>`;
+    if (selected) sel.value = selected;
+  } catch (e) {
+    sel.innerHTML = `<option value="">${esc(e.message)}</option>`;
+  }
+}
+
+function formCamera() {
+  return {
+    host: $('#sHost').value.trim(),
+    protocol: $('#sProtocol').value,
+    port: Number($('#sPort').value) || DEFAULT_PORTS[$('#sProtocol').value],
+    address: clamp(Number($('#sAddress').value) || 1, 1, 7),
+    user: $('#sUser').value.trim(),
+    pass: $('#sPass').value,
+    invertPan: $('#sInvertPan').checked,
+    invertTilt: $('#sInvertTilt').checked,
+  };
+}
+
+function line(html, cls = '') {
+  return `<div class="line ${cls}">${html}</div>`;
+}
+
+$('#btnDiscover').addEventListener('click', async () => {
+  const out = $('#discoverOut');
+  const btn = $('#btnDiscover');
+  btn.disabled = true;
+  out.innerHTML = line(esc(t('d.searching')));
+  try {
+    const r = await ptz.discover();
+    const nets = r.networks.map((n) => `${n.address}`).join(', ') || t('d.netsNone');
+    if (!r.devices.length) {
+      out.innerHTML = line(esc(t('d.none', { nets })), 'bad');
+      return;
+    }
+    out.innerHTML = r.devices.map((d) => {
+      const tags = [d.onvif ? 'ONVIF' : null, d.rtsp ? t('d.tagRtsp') : null, d.http ? t('d.tagWeb') : null].filter(Boolean).join(' · ');
+      const name = [d.name, d.hardware].filter(Boolean).join(' ');
+      return `<div class="line pick ok" data-ip="${esc(d.ip)}"><b>${esc(d.ip)}</b> — ${esc(tags)}${name ? ` — ${esc(name)}` : ''}</div>`;
+    }).join('') + line(esc(t('d.pick', { nets })), 'bad');
+    out.querySelectorAll('.pick').forEach((el) => el.addEventListener('click', () => {
+      $('#sHost').value = el.dataset.ip;
+      detectProtocol();
+    }));
+  } catch (e) {
+    out.innerHTML = line(esc(t('d.searchError', { error: errMsg(e) })), 'bad');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function detectProtocol() {
+  const out = $('#discoverOut');
+  const c = formCamera();
+  if (!c.host) { toast(t('s.needIp'), 'warn'); return; }
+  const btn = $('#btnDetect');
+  btn.disabled = true;
+  out.innerHTML = line(esc(t('d.checking', { host: c.host })));
+  try {
+    const r = await ptz.detectProtocols({ host: c.host, user: c.user, pass: c.pass, address: c.address });
+    const rows = [];
+    for (const v of r.visca) {
+      const st = v.ok ? `${t('d.replies')}${v.position ? t('d.position') : t('d.noPosition')}` : t('d.noReply');
+      rows.push(line(`${esc(v.label)}: ${esc(st)}`, v.ok ? 'ok' : 'bad'));
+    }
+    if (r.onvif.ok) {
+      const det = r.onvif.error ? t('d.onvifErr', { error: r.onvif.error }) : `${r.onvif.ptz ? t('d.onvifPtz') : t('d.onvifNoPtz')}${r.onvif.position ? t('d.onvifPos') : ''}`;
+      rows.push(line(esc(t('d.onvif', { port: r.onvif.port, detail: det })), r.onvif.ptz ? 'ok' : 'bad'));
+    } else {
+      rows.push(line(esc(t('d.onvifNone')), 'bad'));
+    }
+    if (r.http.ok) rows.push(line(`${esc(t('d.web', { title: r.http.title || t('d.webPresent') }))}${r.http.server ? ` (${esc(r.http.server)})` : ''}`, 'bad'));
+
+    // scelta automatica: prima chi legge la posizione
+    const order = ['udp', 'tcp', 'sony'];
+    const proto = { udp: 'visca-udp', tcp: 'visca-tcp', sony: 'visca-sony' };
+    const best = order.map((m) => r.visca.find((v) => v.mode === m)).find((v) => v && v.ok && v.position);
+    const anyVisca = order.map((m) => r.visca.find((v) => v.mode === m)).find((v) => v && v.ok);
+    let chosen = null;
+    let needSlot = false;
+    if (best) chosen = { protocol: proto[best.mode], port: best.port };
+    else if (r.onvif.ok && r.onvif.ptz && r.onvif.position) chosen = { protocol: 'onvif', port: r.onvif.port };
+    else if (anyVisca) { chosen = { protocol: proto[anyVisca.mode], port: anyVisca.port }; needSlot = true; }
+    else if (r.onvif.ok && r.onvif.ptz) { chosen = { protocol: 'onvif', port: r.onvif.port }; needSlot = true; }
+
+    if (chosen) {
+      $('#sProtocol').value = chosen.protocol;
+      $('#sPort').value = chosen.port;
+      if (needSlot) $('#sPresetMode').value = 'slot';
+      updateFormVisibility();
+      rows.unshift(line(`<b>${esc(t('d.set', { protocol: PROTOCOL_LABEL[chosen.protocol], port: chosen.port }))}</b>${needSlot ? esc(t('d.setSlot')) : ''}${esc(t('d.pressSave'))}`, 'ok'));
+    } else if (r.onvif.ok && r.onvif.error && /author|autoriz|401/i.test(r.onvif.error)) {
+      rows.unshift(line(esc(t('d.onvifAuth')), 'bad'));
+    } else {
+      rows.unshift(line(esc(t('d.nothing')), 'bad'));
+    }
+    out.innerHTML = rows.join('');
+    if (settings.preview.source === 'rtsp' && !$('#sRtsp').value && (r.onvif.ok || r.http.ok || anyVisca)) findRtsp();
+  } catch (e) {
+    out.innerHTML = line(`Errore: ${esc(errMsg(e))}`, 'bad');
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('#btnDetect').addEventListener('click', detectProtocol);
+
+async function findRtsp() {
+  const out = $('#rtspOut');
+  const c = formCamera();
+  if (!c.host) { toast(t('s.needIp'), 'warn'); return; }
+  const btn = $('#btnFindRtsp');
+  btn.disabled = true;
+  out.innerHTML = line(esc(t('r.searching')));
+  try {
+    const onvifPort = c.protocol === 'onvif' ? c.port : 80;
+    const r = await ptz.detectRtsp({ host: c.host, user: c.user, pass: c.pass, onvifPort });
+    const ok = r.filter((x) => x.ok);
+    if (!ok.length) {
+      out.innerHTML = line(esc(t('r.none')), 'bad')
+        + r.map((x) => line(`${esc(x.display)} — ${esc(x.error || t('r.invalid'))}`, 'bad')).join('');
+      return;
+    }
+    $('#sRtsp').value = ok[0].url;
+    out.innerHTML = line(`<b>${esc(t('r.found'))}</b> ${esc(ok[0].display)} (${esc(ok[0].note)}). ${esc(t('r.foundHint'))}`, 'ok')
+      + ok.map((x) => `<div class="line pick" data-url="${esc(x.url)}">${esc(x.display)} — ${esc(x.note)}</div>`).join('');
+    out.querySelectorAll('.pick').forEach((el) => el.addEventListener('click', () => { $('#sRtsp').value = el.dataset.url; }));
+  } catch (e) {
+    out.innerHTML = line(`Errore: ${esc(errMsg(e))}`, 'bad');
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('#btnFindRtsp').addEventListener('click', findRtsp);
+
+$('#btnTestRtsp').addEventListener('click', async () => {
+  const url = $('#sRtsp').value.trim();
+  if (!url) return;
+  const out = $('#rtspOut');
+  out.innerHTML = line(esc(t('r.testing')));
+  const r = await ptz.testUrl(url);
+  out.innerHTML = r.ok ? line(esc(t('r.works')), 'ok') : line(esc(t('r.fails', { error: r.error || t('cam.error') })), 'bad');
+});
+
+$('#btnExport').addEventListener('click', async () => {
+  try {
+    const f = await ptz.exportPresets(presets);
+    if (f) toast(t('presets.exported', { n: presets.length }), 'ok');
+  } catch (e) { toast(errMsg(e), 'err'); }
+});
+
+$('#btnImport').addEventListener('click', async () => {
+  let list;
+  try { list = await ptz.importPresets(); } catch (e) { toast(errMsg(e), 'err'); return; }
+  if (!list) return;
+  const valid = list.filter((p) => p && (p.pos || p.slot != null));
+  if (!valid.length) { toast(t('presets.importInvalid'), 'warn'); return; }
+  const r = await choice(t('presets.importTitle'), t('presets.importText', { n: valid.length }), [
+    { label: t('common.cancel'), value: 'no', className: 'ghost' },
+    { label: t('presets.importAdd'), value: 'add' },
+    { label: t('presets.importReplace'), value: 'replace', className: 'primary' },
+  ]);
+  if (r !== 'add' && r !== 'replace') return;
+  const fresh = valid.map((p) => ({ ...p, id: uid() }));
+  presets = r === 'replace' ? fresh : presets.concat(fresh);
+  activeId = null;
+  renderPresets();
+  await persist();
+  toast(t('presets.imported', { n: fresh.length }), 'ok');
+});
+
+$('#btnDataFolder').addEventListener('click', () => ptz.openDataFolder());
+
+$('#btnSettings').addEventListener('click', () => {
+  fillSettingsForm();
+  $('#dlgSettings').showModal();
+});
+
+$('#dlgSettings').addEventListener('close', async () => {
+  if ($('#dlgSettings').returnValue !== 'save') return;
+  const partial = {
+    camera: formCamera(),
+    preview: {
+      source: $('#sSource').value,
+      rtspUrl: $('#sRtsp').value.trim(),
+      usbDeviceId: $('#sUsb').value || settings.preview.usbDeviceId || '',
+      width: Number($('#sWidth').value) || 960,
+      rotate180: $('#sRotate').checked,
+      grid: $('#sGrid').checked,
+    },
+    presetMode: $('#sPresetMode').value,
+    slotBase: clamp(Number($('#sSlotBase').value) || 0, 0, 240),
+    globalHotkeys: $('#sGlobal').checked,
+    language: $('#sLanguage').value,
+    api: {
+      enabled: $('#xEnable').checked,
+      port: clamp(Number($('#xPort').value) || 8765, 1024, 65535),
+      lan: $('#xLan').checked,
+    },
+    updates: { check: $('#sUpdates').checked },
+  };
+  const langChanged = partial.language !== (settings.language || 'auto');
+  const prevSource = `${settings.preview.source}|${settings.preview.usbDeviceId}`;
+  try {
+    const r = await ptz.saveSettings(partial);
+    settings = r.settings;
+    if (r.hotkeys && !r.hotkeys.ok) {
+      toast(t('s.hotkeysBusy', { keys: r.hotkeys.failed.join(', ') }), 'warn', 6000);
+    }
+    if (`${settings.preview.source}|${settings.preview.usbDeviceId}` !== prevSource) applyPreviewSource();
+    renderCamStatus();
+    renderPreviewState();
+    if (lastFrame) draw(lastFrame);
+    if (langChanged) { window.location.reload(); return; }
+    toast(t('s.saved'), 'ok');
+  } catch (e) {
+    toast(t('s.notSaved', { error: errMsg(e) }), 'err');
+  }
+});
+
+$('#xLan').addEventListener('change', () => { $('#xLanWarn').hidden = !$('#xLan').checked; });
+
+// ---------------------------------------------------------------------------
+// Aggiornamenti: avviso discreto in alto quando su GitHub c'è una versione più recente
+
+let updateState = null;
+let updateDismissed = false; // «più tardi»: l'avviso torna al prossimo avvio
+
+function updateText(st) {
+  if (!st) return '';
+  switch (st.state) {
+    case 'checking': return t('up.checking');
+    case 'available': return t('up.newer', { v: st.latest });
+    case 'current': return t('up.current', { v: st.current || info.version });
+    case 'none': return t('up.none');
+    case 'error': return t('up.error', { error: st.detail || '' });
+    case 'disabled': return t('up.disabled');
+    default: return '';
+  }
+}
+
+function renderUpdate(st) {
+  if (st) updateState = st;
+  const s = updateState;
+  const show = !!s && s.state === 'available' && !updateDismissed;
+  $('#updatePill').hidden = !show;
+  if (show) $('#btnUpdate').textContent = t('up.available', { v: s.latest });
+  $('#updStatus').textContent = updateText(s);
+  $('#btnCheckUpdate').disabled = !!s && (s.state === 'checking' || s.state === 'disabled');
+}
+
+$('#btnUpdate').addEventListener('click', () => { ptz.openUpdate(); });
+$('#btnUpdateLater').addEventListener('click', () => { updateDismissed = true; renderUpdate(); });
+$('#btnCheckUpdate').addEventListener('click', async () => {
+  renderUpdate({ state: 'checking' });
+  const r = await ptz.checkUpdate().catch((e) => ({ state: 'error', detail: errMsg(e) }));
+  updateDismissed = false;
+  renderUpdate(r);
+});
+
+// ---------------------------------------------------------------------------
+// Comandi esterni: pannello OBS, indirizzi per Stream Deck/Companion, tasti globali
+
+let api = null; // informazioni del collegamento (indirizzi, chiave, stato)
+
+function renderApiStatus(st) {
+  const el = $('#xStatus');
+  if (!el || !st) return;
+  el.textContent = st.state === 'on' ? t('x.statusOn', { addr: st.detail })
+    : st.state === 'error' ? t('x.statusError', { error: st.detail }) : t('x.statusOff');
+}
+
+async function refreshApiInfo() {
+  api = await ptz.apiInfo();
+  $('#xObsUrl').value = api.obsUrl;
+  renderApiStatus(api.status);
+  return api;
+}
+
+async function copyText(text) {
+  await ptz.copy(text);
+  toast(t('x.copied'), 'ok', 2000);
+}
+
+const ACTION_PATHS = {
+  stop: 'stop', home: 'home', next: 'next', prev: 'prev', onepush: 'onepush',
+  'zoom:in': 'zoom/in', 'zoom:out': 'zoom/out',
+  'nudge:up': 'nudge/up', 'nudge:down': 'nudge/down', 'nudge:left': 'nudge/left', 'nudge:right': 'nudge/right',
+};
+
+const FIXED_ACTIONS_UI = Object.keys(ACTION_PATHS);
+
+function actionUrl(action) {
+  const path = action.startsWith('preset:')
+    ? `recall/id/${encodeURIComponent(action.slice(7))}`
+    : ACTION_PATHS[action];
+  return `${api.base}/api/${path}?k=${encodeURIComponent(api.token)}`;
+}
+
+function actionLabel(action) {
+  if (action.startsWith('preset:')) {
+    const p = presets.find((x) => x.id === action.slice(7));
+    return t('a.preset', { name: p ? p.name : '?' });
+  }
+  return t(`a.${action}`);
+}
+
+// Combinazione per i tasti globali (formato Electron) a partire dal tasto premuto
+const SPECIAL_KEYS = {
+  Space: 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+  PageUp: 'PageUp', PageDown: 'PageDown', Home: 'Home', End: 'End', Insert: 'Insert', Delete: 'Delete',
+  NumpadAdd: 'numadd', NumpadSubtract: 'numsub', NumpadMultiply: 'nummult', NumpadDivide: 'numdiv', NumpadDecimal: 'numdec',
+};
+function accelFromEvent(e) {
+  const c = e.code;
+  let key = null;
+  if (/^Key[A-Z]$/.test(c)) key = c.slice(3);
+  else if (/^Digit\d$/.test(c)) key = c.slice(5);
+  else if (/^F(\d{1,2})$/.test(c) && Number(c.slice(1)) <= 24) key = c;
+  else if (/^Numpad\d$/.test(c)) key = `num${c.slice(6)}`;
+  else if (SPECIAL_KEYS[c]) key = SPECIAL_KEYS[c];
+  if (!key) return { pending: true }; // solo modificatori: si aspetta il tasto
+  const extraF = /^F(1[3-9]|2[0-4])$/.test(key);
+  if (!extraF && !e.ctrlKey && !e.altKey && !e.metaKey) return { error: t('c.needModifier') };
+  const mods = [];
+  if (e.ctrlKey) mods.push('Control');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  if (e.metaKey) mods.push('Super');
+  return { accel: [...mods, key].join('+') };
+}
+
+let capture = null; // { action, chip }
+
+function stopCapture() {
+  if (!capture) return;
+  window.removeEventListener('keydown', capture.handler, true);
+  capture = null;
+  renderCommands();
+}
+
+// combinazioni che Windows e quasi tutti i programmi usano già: un tasto globale le "ruberebbe"
+const RESERVED = new Set([
+  ...'ACVXZYSFPWNTOR'.split('').map((k) => `Control+${k}`),
+  'Alt+F4', 'Alt+Tab', 'Alt+Space', 'Control+Alt+Delete', 'Control+Shift+Escape', 'Control+Escape',
+  'Control+Shift+Z', 'Control+Shift+S', 'Control+Shift+N', 'Control+Shift+T',
+]);
+
+function validActions() {
+  return [...FIXED_ACTIONS_UI, ...presets.map((p) => `preset:${p.id}`)];
+}
+
+async function saveShortcut(action, accel) {
+  const valid = new Set(validActions());
+  const sc = Object.fromEntries(Object.entries(settings.shortcuts || {}).filter(([a]) => valid.has(a)));
+  if (accel) sc[action] = accel; else delete sc[action];
+  const r = await ptz.saveSettings({ shortcuts: sc });
+  settings = r.settings;
+  if (accel && r.hotkeys && r.hotkeys.failed.includes(accel)) {
+    toast(t('s.hotkeysBusy', { keys: accel }), 'warn', 6000);
+  } else if (accel) {
+    toast(t('c.saved', { key: accel }), 'ok', 2500);
+  }
+  renderCommands();
+}
+
+function startCapture(action, chip) {
+  stopCapture();
+  chip.textContent = t('c.press');
+  chip.classList.add('capturing');
+  const handler = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === 'Escape') { stopCapture(); return; }
+    const r = accelFromEvent(e);
+    if (r.pending) return;
+    if (r.error) { toast(r.error, 'warn', 5000); return; }
+    if (RESERVED.has(r.accel)) { toast(t('c.reserved', { key: r.accel }), 'warn', 5000); return; }
+    const valid = new Set(validActions());
+    const other = Object.entries(settings.shortcuts || {}).find(([a, k]) => k === r.accel && a !== action && valid.has(a));
+    const fixed = settings.globalHotkeys && (/^Control\+Alt\+\d$/.test(r.accel) || r.accel === 'Control+Alt+S');
+    if (other || fixed) {
+      toast(t('c.taken', { name: other ? actionLabel(other[0]) : t('s.global') }), 'warn', 5000);
+      return;
+    }
+    const act = capture.action;
+    stopCapture();
+    saveShortcut(act, r.accel);
+  };
+  capture = { action, handler };
+  window.addEventListener('keydown', handler, true);
+}
+
+function renderCommands() {
+  const box = $('#cmdTable');
+  if (!box || !api) return;
+  $('#cmdApiOff').hidden = !!settings.api.enabled;
+  const actions = [...api.actions.filter((a) => !a.startsWith('preset:')),
+    ...presets.map((p) => `preset:${p.id}`)];
+  box.innerHTML = '';
+  actions.forEach((action) => {
+    const row = document.createElement('div');
+    row.className = 'cmd-row';
+    const idx = action.startsWith('preset:') ? presets.findIndex((p) => `preset:${p.id}` === action) : -1;
+    const num = idx >= 0 ? `<span class="num">${idx < 10 ? HOTKEYS[idx] : '·'}</span>` : '';
+    const accel = (settings.shortcuts || {})[action];
+    row.innerHTML = `<div class="label" title="${esc(actionLabel(action))}">${num}${esc(actionLabel(action))}</div>`
+      + `<div class="key-chip${accel ? ' set' : ''}">${esc(accel || '—')}</div>`
+      + `<div class="btns"><button type="button" class="b-assign">${esc(t('c.assign'))}</button>`
+      + `${accel ? `<button type="button" class="b-clear ghost" title="${esc(t('c.clear'))}">✕</button>` : ''}</div>`
+      + `<button type="button" class="b-url ghost">${esc(t('c.copyUrl'))}</button>`;
+    const chip = row.querySelector('.key-chip');
+    row.querySelector('.b-assign').addEventListener('click', () => startCapture(action, chip));
+    const clr = row.querySelector('.b-clear');
+    if (clr) clr.addEventListener('click', () => saveShortcut(action, null));
+    row.querySelector('.b-url').addEventListener('click', () => copyText(actionUrl(action)));
+    box.appendChild(row);
+  });
+  if (capture) {
+    // dopo un ridisegno la cattura in corso riparte sulla riga giusta
+    const i = actions.indexOf(capture.action);
+    const chip = box.querySelectorAll('.key-chip')[i];
+    if (chip) { chip.textContent = t('c.press'); chip.classList.add('capturing'); }
+  }
+}
+
+$('#xCopyObs').addEventListener('click', () => copyText($('#xObsUrl').value));
+$('#xCommands').addEventListener('click', async () => {
+  await refreshApiInfo();
+  renderCommands();
+  $('#dlgCommands').showModal();
+});
+$('#dlgCommands').addEventListener('close', () => stopCapture());
+$('#xNewKey').addEventListener('click', async () => {
+  const r = await choice(t('x.newKeyTitle'), t('x.newKeyText'), [
+    { label: t('common.cancel'), value: 'no', className: 'ghost' },
+    { label: t('x.newKey'), value: 'yes', className: 'primary' },
+  ]);
+  if (r !== 'yes') return;
+  api = await ptz.newApiToken();
+  settings.api.token = api.token;
+  $('#xObsUrl').value = api.obsUrl;
+  renderApiStatus(api.status);
+});
+
+// ---------------------------------------------------------------------------
+// Finestra
+
+function renderPin() {
+  $('#btnPin').classList.toggle('on', !!settings.alwaysOnTop);
+}
+
+$('#btnPin').addEventListener('click', async () => {
+  const r = await ptz.saveSettings({ alwaysOnTop: !settings.alwaysOnTop });
+  settings = r.settings;
+  renderPin();
+});
+
+function renderCompact() {
+  document.body.classList.toggle('compact', !!settings.compact);
+  $('#btnCompact').textContent = settings.compact ? t('top.full') : t('top.compact');
+}
+
+$('#btnCompact').addEventListener('click', async () => {
+  settings.compact = await ptz.setCompact(!settings.compact);
+  renderCompact();
+});
+
+// ---------------------------------------------------------------------------
+// Avvio
+
+(async () => {
+  const s = await ptz.init();
+  settings = s.settings;
+  presets = s.presets || [];
+  activeId = s.activeId || null;
+  info = s.info;
+  window.I18N.setLang(info.lang);
+  document.documentElement.lang = info.lang;
+  applyI18n();
+  camState = s.camStatus;
+  previewState = s.previewStatus;
+  $('#account').textContent = info.user;
+  bindSlider('moveSpeed', 'moveSpeed');
+  bindSlider('recallSpeed', 'recallSpeed');
+  renderCamStatus();
+  renderPin();
+  renderCompact();
+  renderPresets();
+  applyPreviewSource();
+
+  ptz.onCamStatus((st) => {
+    const was = camState.state;
+    camState = st;
+    renderCamStatus();
+    if (was === 'connected' && st.state !== 'connected') toast(t('cam.toast', { detail: st.detail || t('cam.lost') }), 'warn');
+  });
+  ptz.onCamLog((m) => toast(m, 'warn'));
+  ptz.onHotkey((h) => {
+    if (h.type === 'stop') resetManualUi(); // lo stop è già partito: si sistema solo l'interfaccia
+  });
+  // inquadratura richiamata da OBS, Stream Deck, tasti globali o da questa finestra
+  ptz.onActive((id) => {
+    activeId = id;
+    const p = presets.find((x) => x.id === id);
+    if (p && p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
+    if (!editor) renderPresets();
+  });
+  ptz.onApiStatus((st) => renderApiStatus(st));
+  renderUpdate(s.update || null);
+  ptz.onUpdateStatus((st) => renderUpdate(st));
+  ptz.onSettingsChanged((s2) => { settings = s2; });
+
+  if (!settings.camera.host) {
+    fillSettingsForm();
+    $('#dlgSettings').showModal();
+  }
+})();
