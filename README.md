@@ -61,7 +61,8 @@ If the camera can't report its position, presets use the camera's internal memor
 - Choose it on first start ("Camera connected over USB?") or in Settings › Camera › Protocol "USB (UVC)". PTZ Hub opens the camera and tells you right away whether it accepts pan, tilt, zoom and manual focus over USB.
 - Many PTZ cameras send only video over the USB cable: then you get "This camera does not accept movements over USB" and you need the network cable with VISCA or ONVIF. If it only accepts zoom, zoom is used and you are told so.
 - USB cameras only accept absolute positions: joystick, arrow keys, OBS dock and Stream Deck move the camera in small steps (25 per second) according to the speed; STOP stops at once. Presets store the exact position in the app (USB cameras have no internal memories); Home brings pan and tilt to the centre and zoom to the widest.
-- On Windows a USB camera can usually be used by one program at a time: if OBS is already using it, PTZ Hub says so ("The USB camera is busy") and suggests closing the source in OBS or controlling the camera over the network. On Windows 11 (24H2 and later) you can turn on "Allow multiple apps to use the camera at the same time" in Settings → Bluetooth & devices → Cameras → your camera → Advanced camera options, so OBS gets the video while PTZ Hub controls the camera. Inside PTZ Hub the USB preview and the controls share the same camera.
+- **Windows: the video stays with OBS or Zoom.** PTZ Hub moves a USB camera without opening its video, through the Windows camera-control interface (the same as the "Camera Control" tab in OBS), so OBS or Zoom keep using the camera at the same time, on Windows 10 and 11 with no setting to change. The preview inside PTZ Hub is off by default; you can turn it on in Settings if no other program uses the camera. Quick check without PTZ Hub: in OBS double-click the camera source → "Configure Video" → "Camera Control": if Pan, Tilt and Zoom move the camera, PTZ Hub can move it too.
+- On macOS several programs can use the same camera, and PTZ Hub's preview and controls share it.
 - If the cable comes off, the Control room shows "The USB camera is not responding" and reconnects by itself as soon as the camera is back.
 
 Support is being field-tested: if you try it with your model, open an [issue](https://github.com/Redmango-Agency/PTZhub/issues/new/choose) ("Camera tested").
@@ -93,7 +94,7 @@ At startup and then once a day the program asks GitHub for the latest published 
 
 ## Getting started
 1. On first start the program searches the network and suggests the camera (or type its IP). Camera connected only with the USB cable: "Camera connected over USB? (beta)".
-2. Video preview: it finds the RTSP stream; choose USB if the camera is connected to this computer.
+2. Video preview: it finds the RTSP stream; choose USB if the camera is connected to this computer (on Windows, with a USB camera used by OBS or Zoom, leave it off).
 3. "+ New preset" to create your shots.
 
 ## Development
@@ -110,7 +111,7 @@ npm run dist:win        # installer and portable version in dist/
 GitHub Actions builds the Windows installer, the Mac dmgs and the Stream Deck plugin on every `v*` tag and publishes them in Releases, with the notes taken from the changelog. The plugin lives in [streamdeck/](streamdeck/). See [CHANGELOG.md](CHANGELOG.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```
-src/main/      camera drivers (visca.js, onvif.js, uvc.js + uvc-link.js for USB), discovery, preview, per-account storage,
+src/main/      camera drivers (visca.js, onvif.js, uvc.js + uvc-link.js / uvc-native.js for USB), discovery, preview, per-account storage,
                hub.js (command hub), control.js (local API for OBS/Stream Deck), updates.js
 src/renderer/  user interface          src/control/  OBS dock
 src/shared/    Italian and English texts          test/  simulated cameras and tests

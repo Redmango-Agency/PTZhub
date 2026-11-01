@@ -5,9 +5,10 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test/visca.test.js && node test/onvif.test.js && node test/control.test.js && node test/hub.test.js && node test/uvc.test.js && node test/probe.test.js && node test/updates.test.js",
+    "test": "node test/visca.test.js && node test/onvif.test.js && node test/control.test.js && node test/hub.test.js && node test/uvc.test.js && node test/uvc-native.test.js && node test/probe.test.js && node test/updates.test.js",
     "rileva": "node tools/rileva-camera.js",
-    "dist:win": "electron-builder --win --x64 --publish never",
+    "dist:win": "node scripts/build-uvc-helper.js && electron-builder --win --x64 --publish never",
+    "uvc:win": "node scripts/build-uvc-helper.js",
     "ffmpeg:win": "node scripts/fetch-ffmpeg.js win32-x64"
   },
   "author": "Redmango S.r.l.",
@@ -71,6 +72,13 @@
         {
           "from": "build/licenses/ffmpeg-GPL-3.0.txt",
           "to": "ffmpeg/LICENSE.txt"
+        },
+        {
+          "from": "vendor/uvc-win",
+          "to": "uvc",
+          "filter": [
+            "ptzhub-uvc.exe"
+          ]
         }
       ],
       "extraFiles": [

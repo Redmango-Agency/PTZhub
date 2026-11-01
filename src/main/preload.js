@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('ptz', {
   recallSlot: (n) => ipcRenderer.invoke('cam:recallSlot', n),
 
   discover: () => ipcRenderer.invoke('detect:discover'),
+  uvcProbe: (label) => ipcRenderer.invoke('uvc:probe', label),
   detectProtocols: (opts) => ipcRenderer.invoke('detect:protocols', opts),
   detectRtsp: (opts) => ipcRenderer.invoke('detect:rtsp', opts),
   testUrl: (url) => ipcRenderer.invoke('detect:testUrl', url),

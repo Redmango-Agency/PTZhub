@@ -1151,7 +1151,20 @@ async function listUvcDevices(selectedId, selectedLabel) {
 
 // Prova dei comandi via USB: si apre la camera chiedendo pan/tilt/zoom e si leggono le capacità.
 // Dentro PTZ Hub la cattura è condivisa: funziona anche con l'anteprima o i comandi già attivi.
-async function probeUvc(deviceId) {
+async function probeUvc(deviceId, label = '') {
+  if (info.uvcNative) {
+    // Windows: verifica senza aprire il video, così funziona anche con la camera aperta in OBS o Zoom
+    let lab = label;
+    if (!lab && deviceId) {
+      try {
+        const d = (await navigator.mediaDevices.enumerateDevices()).find((x) => x.deviceId === deviceId);
+        lab = d ? d.label : '';
+      } catch (_) { /* nessun elenco */ }
+    }
+    const r = await ptz.uvcProbe(lab);
+    if (r.ok) return { ok: true, label: lab || r.label, axes: UVC.analyzeCaps(r.caps) };
+    return { ok: false, code: UVC.classifyError({ name: r.name }), error: r.message };
+  }
   let stream = null;
   try {
     const video = { pan: true, tilt: true, zoom: true };
@@ -1196,7 +1209,7 @@ async function checkUvc() {
   const btn = $('#btnUvcCheck');
   btn.disabled = true;
   setLine($('#uvcIcon'), $('#uvcText'), 'busy', t('s.uvcChecking'));
-  const r = await probeUvc(opt.value);
+  const r = await probeUvc(opt.value, opt.dataset.label || '');
   if (token !== uvcCheckToken) return;
   btn.disabled = false;
   const v = uvcVerdict(r);
@@ -2042,7 +2055,7 @@ async function wzSelectUsb(deviceId) {
   wzCheckLine($('#wzCheckPos'), 'wait', t('w.pos'), t('w.checkingShort'));
   wzCheckLine($('#wzCheckVideo'), 'wait', t('w.video'), t('w.checkingShort'));
   wzNote('');
-  const r = await probeUvc(deviceId);
+  const r = await probeUvc(deviceId, d.label);
   if (token !== wz.token) return;
   const v = uvcVerdict(r);
   wz.usb.ok = !!(r.ok && r.axes.any);
@@ -2050,7 +2063,7 @@ async function wzSelectUsb(deviceId) {
   wzCheckLine($('#wzCheckCmd'), v.kind, t('w.cmdUsb'), v.short);
   if (wz.usb.ok) wzCheckLine($('#wzCheckPos'), 'ok', t('w.pos'), t('w.posOk'));
   else wzCheckLine($('#wzCheckPos'), '', t('w.pos'), '—');
-  if (r.ok) wzCheckLine($('#wzCheckVideo'), 'ok', t('w.video'), t('w.videoUsb'));
+  if (r.ok) wzCheckLine($('#wzCheckVideo'), 'ok', t('w.video'), t(info.uvcNative ? 'w.videoElsewhere' : 'w.videoUsb'));
   else wzCheckLine($('#wzCheckVideo'), 'bad', t('w.video'), t('w.usbErr'));
   // esito non pieno: si spiega perché e cosa fare
   wzNote(v.kind === 'ok' ? '' : v.text);
@@ -2072,8 +2085,10 @@ async function wzUseUsb() {
     const camera = {
       ...settings.camera, protocol: 'usb', usbDeviceId: u.deviceId, usbLabel: u.label, name: u.label,
     };
-    // anteprima dalla stessa camera: la cattura è condivisa con i comandi
-    await wzSave({ camera, presetMode: 'app', preview: { source: 'usb', usbDeviceId: u.deviceId } });
+    // Windows: il video resta a OBS o Zoom (anteprima spenta, si può accendere dalle Impostazioni);
+    // altrove l'anteprima viene dalla stessa camera, la cattura è condivisa con i comandi
+    const preview = info.uvcNative ? { source: 'none' } : { source: 'usb', usbDeviceId: u.deviceId };
+    await wzSave({ camera, presetMode: 'app', preview });
     wz.saved = 'usb';
     camFirstAttempt = true;
     stopUsb();
@@ -2147,7 +2162,8 @@ function renderWzVideo() {
   let sub = '';
   if (src === 'none') {
     kind = 'ok'; title = t('w.noVideoChosen');
-    $('#wzNoVideoText').textContent = t('preview.off');
+    const usbWin = settings.camera.protocol === 'usb' && info.uvcNative;
+    $('#wzNoVideoText').textContent = usbWin ? t('w.usbWinNote') : t('preview.off');
   } else if (src === 'usb') {
     kind = live ? 'ok' : previewState.state === 'error' ? 'bad' : 'busy';
     title = live ? t('w.usbFound') : previewState.state === 'error' ? t('w.usbFail') : t('preview.connecting');

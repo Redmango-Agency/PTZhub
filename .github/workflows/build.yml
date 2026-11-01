@@ -26,6 +26,9 @@ jobs:
       - name: Scarica ffmpeg per Windows
         run: node scripts/fetch-ffmpeg.js win32-x64
 
+      - name: Compila l'aiuto per le camere USB (comandi senza aprire il video)
+        run: node scripts/build-uvc-helper.js
+
       - name: Test (telecamere simulate VISCA e ONVIF)
         run: node scripts/ci-annotate.js "Test" --retry 1 -- npm test
 

@@ -61,7 +61,8 @@ Se la camera non sa comunicare la propria posizione, le inquadrature usano le me
 - Si sceglie al primo avvio («Camera collegata via USB?») o in Impostazioni › Telecamera › Protocollo «USB (UVC)». PTZ Hub apre la camera e dice subito se accetta pan, tilt, zoom e fuoco manuale via USB.
 - Molte camere PTZ dal cavo USB mandano solo il video: in quel caso compare «Questa camera non accetta movimenti via USB» e serve il cavo di rete con VISCA o ONVIF. Se accetta solo lo zoom, si usa lo zoom e lo si dice.
 - Le camere USB accettano solo posizioni assolute: joystick, frecce, pannello OBS e Stream Deck muovono la camera a piccoli passi (25 al secondo) in base alla velocità; STOP ferma subito. Le inquadrature salvano la posizione esatta nel programma (le camere USB non hanno memorie interne); Home porta pan e tilt al centro e lo zoom al minimo.
-- Su Windows una camera USB di solito la può usare un solo programma alla volta: se OBS la sta già usando, PTZ Hub lo segnala («La camera USB è occupata») e suggerisce di chiudere la sorgente in OBS o di comandare la camera via rete. Su Windows 11 (24H2 e successivi) si può attivare «Consenti a più app di usare la fotocamera contemporaneamente» in Impostazioni → Bluetooth e dispositivi → Fotocamere → la camera → Opzioni avanzate: così OBS riceve il video e PTZ Hub la comanda nello stesso momento. Dentro PTZ Hub l'anteprima USB e i comandi condividono la stessa camera.
+- **Windows: il video resta a OBS o Zoom.** PTZ Hub muove la camera USB senza aprirne il video, con la funzione di Windows per i comandi della camera (la stessa della scheda «Controllo telecamera» di OBS): così OBS o Zoom continuano a usare la camera nello stesso momento, su Windows 10 e 11, senza impostazioni da cambiare. L'anteprima dentro PTZ Hub è spenta di default; si accende dalle Impostazioni se nessun altro programma usa la camera. Prova veloce senza PTZ Hub: in OBS doppio clic sulla sorgente della camera → «Configura video» → «Controllo telecamera»: se Pan, Tilt e Zoom muovono la camera, PTZ Hub la può muovere.
+- Su macOS più programmi possono usare la stessa camera, e anteprima e comandi di PTZ Hub la condividono.
 - Se il cavo si stacca la Regia mostra «La camera USB non risponde» e si ricollega da sola appena la camera torna.
 
 Il supporto è in fase di collaudo: se la provi con il tuo modello, apri una [Issue](https://github.com/Redmango-Agency/PTZhub/issues/new/choose) («Telecamera provata»).
@@ -93,7 +94,7 @@ All'avvio e poi una volta al giorno il programma chiede a GitHub qual è l'ultim
 
 ## Primo utilizzo
 1. Al primo avvio il programma cerca in rete e propone la telecamera (oppure scrivi l'IP). Camera collegata solo con il cavo USB: «Camera collegata via USB? (in prova)».
-2. Anteprima video: trova il flusso RTSP; scegli USB se la camera è collegata a questo computer.
+2. Anteprima video: trova il flusso RTSP; scegli USB se la camera è collegata a questo computer (su Windows, con una camera USB usata da OBS o Zoom, lasciala spenta).
 3. «+ Nuova inquadratura» per creare le tue inquadrature.
 
 ## Sviluppo
@@ -110,7 +111,7 @@ npm run dist:win        # installer e versione portatile in dist/
 GitHub Actions crea l'installer Windows, i dmg per Mac e il plugin per Stream Deck a ogni tag `v*` e li pubblica nelle Releases, con le note prese dal registro delle novità. Il plugin è in [streamdeck/](streamdeck/). Vedi [CHANGELOG.md](CHANGELOG.md) e [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```
-src/main/      driver delle telecamere (visca.js, onvif.js, uvc.js + uvc-link.js per la USB), ricerca, anteprima, dati per account,
+src/main/      driver delle telecamere (visca.js, onvif.js, uvc.js + uvc-link.js / uvc-native.js per la USB), ricerca, anteprima, dati per account,
                hub.js (centro operativo), control.js (collegamento per OBS/Stream Deck), updates.js
 src/renderer/  interfaccia              src/control/  pannello per OBS
 src/shared/    testi in italiano e inglese         test/  telecamere simulate e test

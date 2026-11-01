@@ -11,6 +11,7 @@ const { ViscaCamera } = require('./visca');
 const { OnvifCamera } = require('./onvif');
 const { UvcCamera } = require('./uvc');
 const { UvcLink } = require('./uvc-link');
+const { UvcNativeLink, helperPath: uvcHelperPath, probeNative: uvcProbeNative } = require('./uvc-native');
 const { Preview, testUrl } = require('./preview');
 const probe = require('./probe');
 const { Hub } = require('./hub');
@@ -101,18 +102,27 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // ---------------------------------------------------------------------------
 // Camera
 
+// aiuto per le camere USB su Windows (resources/uvc/ptzhub-uvc.exe); null altrove o se manca
+let uvcExeCache;
+function uvcExe() {
+  if (uvcExeCache === undefined) uvcExeCache = uvcHelperPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath });
+  return uvcExeCache;
+}
+
 function createCamera(cfg) {
   if (cfg.protocol === 'usb') {
     // camera collegata con il cavo USB (UVC, in prova): comandi da una finestra nascosta.
     // Il permesso per pan/tilt/zoom arriva da Electron senza bisogno di un gestore dei permessi
     // (nessuno è impostato: Electron concede la fotocamera e anche il suo controllo PTZ).
     if (!cfg.usbDeviceId && !cfg.usbLabel) return null;
+    // Windows: comandi senza aprire il video (ptzhub-uvc.exe), così OBS o Zoom tengono la camera
+    const exe = uvcExe();
     return new UvcCamera({
       deviceId: cfg.usbDeviceId || '',
       label: cfg.usbLabel || '',
       invertPan: !!cfg.invertPan,
       invertTilt: !!cfg.invertTilt,
-      link: new UvcLink(),
+      link: exe ? new UvcNativeLink({ exe }) : new UvcLink(),
     });
   }
   if (!cfg.host) return null;
@@ -626,6 +636,7 @@ function registerIpc() {
       dataDir: app.getPath('userData'),
       version: APP_VERSION,
       platform: process.platform,
+      uvcNative: !!uvcExe(), // camere USB su Windows comandate senza aprire il video
       lang: I18N.getLang(),
       hasProject: !!projectUrl(),
       maximized: !!(win && !win.isDestroyed() && win.isMaximized()),
@@ -750,6 +761,13 @@ function registerIpc() {
   });
   ipcMain.handle('cam:saveSlot', (_e, n) => requireCamera().saveSlot(n));
   ipcMain.handle('cam:recallSlot', (_e, n) => requireCamera().recallSlot(n));
+
+  // verifica di una camera USB su Windows senza aprire il video (OBS o Zoom possono averla aperta)
+  ipcMain.handle('uvc:probe', async (_e, label) => {
+    const exe = uvcExe();
+    if (!exe) return { ok: false, name: 'NotSupportedError', message: 'ptzhub-uvc.exe mancante' };
+    return uvcProbeNative(exe, typeof label === 'string' ? label.slice(0, 300) : '');
+  });
 
   ipcMain.handle('detect:discover', async () => {
     const [onvif, scan] = await Promise.all([probe.wsDiscovery(), probe.scanNetwork()]);
