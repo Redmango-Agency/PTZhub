@@ -1866,22 +1866,29 @@ async function wzSearch() {
   wz.searching = true;
   $('#wzSearchAgain').disabled = true;
   wzSetSearch('busy', t('w.searching'), t('w.searchingSub'));
+  // camere collegate via USB: si cercano insieme a quelle in rete
+  const usbFound = videoDevices().catch(() => []);
   try {
     const r = await ptz.discover();
+    const usb = await usbFound;
     wz.devices = r.devices;
     for (const d of r.devices) if (deviceName(d)) discoveredNames.set(d.ip, deviceName(d));
     const nets = r.networks.map((n) => n.address.replace(/\.\d+$/, '.x')).join(', ') || t('d.netsNone');
     if (!r.devices.length) {
-      wzSetSearch('warn', t('w.noneTitle'), t('w.noneSub', { nets }));
-      // niente in rete: indirizzo a mano oppure una camera collegata via USB
+      wzSetSearch('warn', t('w.noneTitle'), t(usb.length ? 'w.noneSubUsb' : 'w.noneSub', { nets }));
+      // niente in rete: le camere USB, altrimenti l'indirizzo a mano
       if (!wz.selected && wz.mode !== 'usb') {
-        wzShowManual(true);
-        if (!wz.usbOpen) wzShowUsb(true);
+        if (!usb.length) wzShowManual(true);
+        if (!wz.usbOpen) await wzShowUsb(true);
+        // una sola camera USB: si verifica subito se accetta i comandi
+        if (wz.usbDevices.length === 1 && !wz.selected && wz.mode !== 'usb' && !wz.manual) wzSelectUsb(wz.usbDevices[0].deviceId);
       }
     } else {
       wzSetSearch('ok', t('w.doneTitle'), t('w.doneSub', { nets, n: r.devices.length }));
       const best = r.devices[0];
       if (!wz.selected && !wz.manual && wz.mode !== 'usb' && (best.visca || best.onvif || best.rtsp)) wzSelect(best.ip);
+      // ci sono anche camere USB: si mostrano, la scelta resta a chi usa il programma
+      if (usb.length && !wz.usbOpen) wzShowUsb(true);
     }
     renderWzDevices();
   } catch (e) {
