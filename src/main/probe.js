@@ -7,7 +7,7 @@ const dgram = require('dgram');
 const net = require('net');
 const os = require('os');
 const crypto = require('crypto');
-const { ViscaTransport, fromNibbles, hex } = require('./visca');
+const { ViscaTransport, fromNibbles, splitMessages, hex } = require('./visca');
 const { OnvifClient, httpRequest, section } = require('./onvif');
 
 const KNOWN_DEFAULT_IPS = ['192.168.5.163', '192.168.1.188', '192.168.100.88', '192.168.1.18', '192.168.0.88'];
@@ -116,17 +116,117 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
-// Trova host con porte tipiche delle telecamere aperte (RTSP 554 / HTTP 80)
-async function scanNetwork({ extra = KNOWN_DEFAULT_IPS, onProgress } = {}) {
-  const targets = [...new Set([...scanTargets(), ...extra])];
-  let n = 0;
-  const res = await mapLimit(targets, 96, async (ip) => {
-    const [rtsp, http] = await Promise.all([tcpOpen(ip, 554), tcpOpen(ip, 80)]);
-    n++;
-    if (onProgress && n % 32 === 0) onProgress(n, targets.length);
-    return (rtsp || http) ? { ip, rtsp, http } : null;
+// ---------------------------------------------------------------------------
+// Ricerca in rete: compaiono solo i dispositivi che parlano davvero un protocollo da telecamera
+// (VISCA, RTSP; ONVIF arriva da wsDiscovery). Una porta aperta non basta: router, telefoni VoIP,
+// stampanti e NAS hanno la pagina web, e la 5678 può essere un altro servizio (es. n8n).
+
+// inquiry «accensione» (81 09 04 00 FF): ogni camera VISCA risponde 90 50 0x FF (o con un errore 90 6x)
+const VISCA_POWER_INQ = Buffer.from([0x81, 0x09, 0x04, 0x00, 0xff]);
+
+function isViscaReply(m) {
+  return !!m && m.length >= 3 && m[m.length - 1] === 0xff
+    && m[0] >= 0x90 && (m[0] & 0x0f) === 0
+    && [0x40, 0x50, 0x60].includes(m[1] & 0xf0);
+}
+
+// Manda l'inquiry VISCA via UDP a tutti gli indirizzi e raccoglie chi risponde (una sola socket)
+function viscaSweep(targets, { port = 1259, sony = false, timeoutMs = 1200 } = {}) {
+  return new Promise((resolve) => {
+    const found = new Set();
+    const sock = dgram.createSocket('udp4');
+    const pkt = sony
+      ? Buffer.concat([Buffer.from([0x01, 0x10, 0x00, VISCA_POWER_INQ.length, 0, 0, 0, 0]), VISCA_POWER_INQ])
+      : VISCA_POWER_INQ;
+    let closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      try { sock.close(); } catch (_) { /* già chiusa */ }
+      resolve(found);
+    };
+    sock.on('error', () => {}); // «porta non raggiungibile» dagli indirizzi senza camera: normale
+    sock.on('message', (msg, rinfo) => {
+      if (sony) {
+        // Sony VISCA over IP: intestazione di 8 byte; 0x0111 = risposta VISCA, 0x0201 = risposta di controllo
+        if (msg.length < 8) return;
+        const type = msg.readUInt16BE(0);
+        if (type === 0x0201 || (type === 0x0111 && isViscaReply(msg.subarray(8)))) found.add(rinfo.address);
+        return;
+      }
+      if (isViscaReply(msg)) found.add(rinfo.address);
+    });
+    sock.bind(0, () => {
+      const sendAll = () => {
+        for (const ip of targets) {
+          if (closed) return;
+          try { sock.send(pkt, port, ip, () => {}); } catch (_) { /* indirizzo non valido */ }
+        }
+      };
+      sendAll();
+      setTimeout(() => { if (!closed) sendAll(); }, 350); // secondo giro: un pacchetto UDP può perdersi
+      setTimeout(finish, timeoutMs);
+    });
   });
-  return res.filter(Boolean);
+}
+
+// Apre una connessione TCP, manda `request` e dice se la risposta va bene secondo `accept`
+function tcpAsk(host, port, request, accept, timeoutMs = 1200) {
+  return new Promise((resolve) => {
+    const s = net.createConnection({ host, port });
+    let buf = Buffer.alloc(0);
+    let done = false;
+    const finish = (ok) => { if (done) return; done = true; s.destroy(); resolve(ok); };
+    s.setTimeout(timeoutMs, () => finish(false));
+    s.on('connect', () => s.write(request));
+    s.on('data', (d) => {
+      buf = Buffer.concat([buf, d]);
+      if (accept(buf)) finish(true);
+      else if (buf.length > 4096) finish(false);
+    });
+    s.on('error', () => finish(false));
+    s.on('close', () => finish(false));
+  });
+}
+
+// RTSP vero (non solo la porta 554 aperta): OPTIONS deve rispondere «RTSP/1.x»
+function rtspAnswers(host, port = 554) {
+  const req = `OPTIONS rtsp://${host}:${port}/ RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: PTZHub\r\n\r\n`;
+  return tcpAsk(host, port, req, (b) => b.length >= 8 && b.toString('latin1', 0, 7) === 'RTSP/1.');
+}
+
+// VISCA over IP via TCP: l'inquiry deve avere una risposta VISCA valida
+function viscaTcpAnswers(host, port = 5678) {
+  return tcpAsk(host, port, VISCA_POWER_INQ, (buf) => splitMessages(buf).messages.some(isViscaReply));
+}
+
+// Trova le telecamere nelle reti di questo PC. Ritorna [{ ip, rtsp, visca: 'udp'|'sony'|'tcp'|null }]:
+// solo chi risponde in VISCA (UDP 1259, Sony 52381, TCP 5678) o in RTSP (554).
+// `targets` e `ports` servono ai test (indirizzi e porte diversi da quelli standard).
+async function scanNetwork({ extra = KNOWN_DEFAULT_IPS, onProgress, targets: only, ports = {} } = {}) {
+  const P = { rtsp: 554, viscaTcp: 5678, viscaUdp: 1259, sony: 52381, ...ports };
+  const targets = only || [...new Set([...scanTargets(), ...extra])];
+  let n = 0;
+  const [udp, sony, hosts] = await Promise.all([
+    viscaSweep(targets, { port: P.viscaUdp }),
+    viscaSweep(targets, { port: P.sony, sony: true }),
+    mapLimit(targets, 96, async (ip) => {
+      const [rtspOpen, tcpViscaOpen] = await Promise.all([tcpOpen(ip, P.rtsp), tcpOpen(ip, P.viscaTcp)]);
+      const [rtsp, viscaTcp] = await Promise.all([
+        rtspOpen ? rtspAnswers(ip, P.rtsp) : false,
+        tcpViscaOpen ? viscaTcpAnswers(ip, P.viscaTcp) : false,
+      ]);
+      n++;
+      if (onProgress && n % 32 === 0) onProgress(n, targets.length);
+      return { ip, rtsp, viscaTcp };
+    }),
+  ]);
+  const out = [];
+  for (const h of hosts) {
+    const visca = udp.has(h.ip) ? 'udp' : sony.has(h.ip) ? 'sony' : h.viscaTcp ? 'tcp' : null;
+    if (h.rtsp || visca) out.push({ ip: h.ip, rtsp: h.rtsp, visca });
+  }
+  return out;
 }
 
 async function probeVisca(host, { address = 1 } = {}) {
@@ -263,5 +363,6 @@ async function findRtsp(host, { user = '', pass = '' } = {}) {
 
 module.exports = {
   KNOWN_DEFAULT_IPS, RTSP_PATHS, localNetworks, wsDiscovery, scanNetwork, tcpOpen,
+  viscaSweep, rtspAnswers, viscaTcpAnswers, isViscaReply,
   probeVisca, probeOnvif, probeHttp, rtspDescribe, findRtsp,
 };

@@ -754,10 +754,13 @@ function registerIpc() {
   ipcMain.handle('detect:discover', async () => {
     const [onvif, scan] = await Promise.all([probe.wsDiscovery(), probe.scanNetwork()]);
     const byIp = new Map();
-    for (const s of scan) byIp.set(s.ip, { ip: s.ip, rtsp: s.rtsp, http: s.http });
+    // solo telecamere: chi risponde in VISCA o RTSP (scanNetwork) o si annuncia ONVIF (WS-Discovery)
+    for (const s of scan) byIp.set(s.ip, { ip: s.ip, rtsp: s.rtsp, visca: s.visca });
     for (const d of onvif) byIp.set(d.ip, { ...(byIp.get(d.ip) || { ip: d.ip }), onvif: true, name: d.name, hardware: d.hardware });
     const out = [...byIp.values()];
-    out.sort((a, b) => (Number(!!b.onvif) + Number(!!b.rtsp)) - (Number(!!a.onvif) + Number(!!a.rtsp)));
+    // prima quelle comandabili (VISCA o ONVIF), poi quelle con solo il video
+    const score = (d) => (d.visca || d.onvif ? 2 : 0) + (d.rtsp ? 1 : 0);
+    out.sort((a, b) => score(b) - score(a));
     return { networks: probe.localNetworks(), devices: out };
   });
 

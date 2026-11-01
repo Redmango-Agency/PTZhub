@@ -967,7 +967,7 @@ function analyzeDetection(r) {
 }
 
 function deviceTags(d) {
-  return [d.onvif ? 'ONVIF' : null, d.rtsp ? t('d.tagRtsp') : null, d.http ? t('d.tagWeb') : null].filter(Boolean).join(' · ');
+  return [d.visca ? t('d.tagVisca') : null, d.onvif ? 'ONVIF' : null, d.rtsp ? t('d.tagRtsp') : null].filter(Boolean).join(' · ');
 }
 const deviceName = (d) => [d.name, d.hardware].filter(Boolean).join(' ').trim();
 const discoveredNames = new Map(); // ip -> nome letto dalla rete
@@ -1857,7 +1857,7 @@ function wzSetSearch(kind, title, sub) {
 }
 
 function renderWzDevices() {
-  const best = wz.devices[0] && (wz.devices[0].onvif || wz.devices[0].rtsp) ? wz.devices[0].ip : null;
+  const best = wz.devices[0] && (wz.devices[0].visca || wz.devices[0].onvif || wz.devices[0].rtsp) ? wz.devices[0].ip : null;
   $('#wzDevices').innerHTML = wz.devices.map((d) => deviceHtml(d, { selected: d.ip === wz.selected, recommended: d.ip === best })).join('');
 }
 
@@ -1881,7 +1881,7 @@ async function wzSearch() {
     } else {
       wzSetSearch('ok', t('w.doneTitle'), t('w.doneSub', { nets, n: r.devices.length }));
       const best = r.devices[0];
-      if (!wz.selected && !wz.manual && wz.mode !== 'usb' && (best.onvif || best.rtsp)) wzSelect(best.ip);
+      if (!wz.selected && !wz.manual && wz.mode !== 'usb' && (best.visca || best.onvif || best.rtsp)) wzSelect(best.ip);
     }
     renderWzDevices();
   } catch (e) {

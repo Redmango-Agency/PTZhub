@@ -35,7 +35,7 @@ const arg = (k, d = '') => {
     });
     process.stdout.write('\n');
     report.scan = scan;
-    for (const s of scan) console.log(`  ${s.ip}  ${s.rtsp ? 'RTSP ' : ''}${s.http ? 'HTTP' : ''}`);
+    for (const s of scan) console.log(`  ${s.ip}  ${s.rtsp ? 'RTSP ' : ''}${s.visca ? `VISCA (${s.visca})` : ''}`);
     ips = [...new Set([...onvif.map((d) => d.ip), ...scan.filter((s) => s.rtsp).map((s) => s.ip), ...scan.map((s) => s.ip)])].slice(0, 8);
   }
 

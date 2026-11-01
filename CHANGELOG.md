@@ -12,6 +12,7 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 - Avvisi chiari per la camera USB: «non accetta movimenti via USB» (con il consiglio di usare il cavo di rete e VISCA/ONVIF), «solo zoom», «occupata» (su Windows di solito da OBS: chiudi lì la sorgente, comanda la camera via rete oppure, su Windows 11, consenti a più app di usare la fotocamera), «non risponde» quando il cavo si stacca, con nuovo collegamento automatico.
 
 ### Cambiato
+- **Ricerca delle telecamere più precisa**: compaiono solo i dispositivi che rispondono come telecamere (VISCA via UDP, Sony o TCP, RTSP oppure ONVIF). Router, telefoni VoIP, stampanti e altri servizi con la sola pagina web non compaiono più.
 - I testi sull'anteprima USB non dicono più che i movimenti passano sempre dalla rete: via USB funzionano se la camera lo permette.
 - Un richiamo interrotto direttamente dalla camera (per esempio dal joystick della Regia) non resta più segnato «In arrivo».
 
