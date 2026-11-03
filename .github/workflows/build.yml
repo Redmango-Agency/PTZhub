@@ -126,10 +126,12 @@ jobs:
           node scripts/release-notes.js "$VERSION" > notes.md
           cd out && ls -la && sha256sum * > SHA256SUMS.txt
 
+      # v1.5.0-beta.1 e simili: pre-release (per chi prova), il programma non la propone come aggiornamento
       - name: Pubblica la release
         uses: softprops/action-gh-release@v2
         with:
           name: PTZ Hub ${{ github.ref_name }}
           body_path: notes.md
           files: out/*
-          make_latest: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}

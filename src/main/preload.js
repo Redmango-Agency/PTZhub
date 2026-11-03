@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('ptz', {
   winControl: (what) => ipcRenderer.send('win:control', what),
   openDataFolder: () => ipcRenderer.invoke('app:openDataFolder'),
   openProject: () => ipcRenderer.invoke('app:openProject'),
+  openCredits: () => ipcRenderer.invoke('app:openCredits'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   openUpdate: () => ipcRenderer.invoke('update:open'),
 

@@ -20,6 +20,13 @@ The application runs on **Electron** (MIT License) which includes **Chromium**
 and other components. Their licenses are included in the installed app as
 `LICENSE.electron.txt` and `LICENSES.chromium.html`.
 
+## USB helper for Windows
+
+`resources/uvc/ptzhub-uvc.exe` (source in `native/uvc-win/`, MIT License like the rest of PTZ Hub) is
+built with **mingw-w64** and statically linked with the GCC runtime libraries (libstdc++, libgcc,
+GPL v3 with the GCC Runtime Library Exception, which allows distribution under any license) and the
+mingw-w64 runtime and winpthreads (permissive licenses: ZPL / MIT).
+
 ## Stream Deck plugin
 
 The Stream Deck plugin (`PTZ-Hub.streamDeckPlugin`) bundles the **Elgato Stream Deck SDK**

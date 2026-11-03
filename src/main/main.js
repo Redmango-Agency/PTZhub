@@ -885,6 +885,12 @@ function registerIpc() {
     shell.openExternal(url);
     return true;
   });
+  // crediti: indirizzo fisso, la pagina non può aprire altro
+  ipcMain.handle('app:openCredits', () => {
+    shell.openExternal('https://redmango.agency/?utm_source=ptzhub&utm_medium=app&utm_campaign=ptzhub');
+    return true;
+  });
+
   ipcMain.handle('app:openProject', () => {
     const url = projectUrl();
     if (!url) return false;

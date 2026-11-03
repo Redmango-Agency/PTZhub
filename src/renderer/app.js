@@ -1633,6 +1633,7 @@ $('#btnImport').addEventListener('click', async () => {
 $('#btnDataFolder').addEventListener('click', () => ptz.openDataFolder());
 $('#btnDataFolder2').addEventListener('click', () => ptz.openDataFolder());
 $('#btnProject').addEventListener('click', () => ptz.openProject());
+$('#btnCredits').addEventListener('click', () => ptz.openCredits());
 
 // ---------------------------------------------------------------------------
 // Aggiornamenti: avviso discreto in alto quando su GitHub c'è una versione più recente

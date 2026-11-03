@@ -6,13 +6,18 @@ const fs = require('fs');
 const path = require('path');
 
 const version = (process.argv[2] || '').replace(/^v/, '');
-if (!/^\d+\.\d+\.\d+$/.test(version)) {
-  console.error('Versione non valida: usa ad esempio 1.4.0');
+const m = /^(\d+\.\d+\.\d+)(-[0-9A-Za-z.]+)?$/.exec(version);
+if (!m) {
+  console.error('Versione non valida: usa ad esempio 1.4.0 o 1.5.0-beta.1');
   process.exit(1);
 }
+const base = m[1];
+const isTest = !!m[2];
 
 const changelog = fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8').split(/\r?\n/);
-const start = changelog.findIndex((l) => l.startsWith(`## [${version}]`));
+// versione di prova: vale la sezione della versione a cui porta (1.5.0-beta.1 -> 1.5.0)
+let start = changelog.findIndex((l) => l.startsWith(`## [${version}]`));
+if (start < 0 && isTest) start = changelog.findIndex((l) => l.startsWith(`## [${base}]`));
 if (start < 0) {
   console.error(`In CHANGELOG.md manca la sezione ## [${version}]`);
   process.exit(1);
@@ -23,7 +28,11 @@ const changes = changelog.slice(start + 1, end).join('\n').trim();
 
 const credit = 'https://redmango.agency/?utm_source=github&utm_medium=referral&utm_campaign=ptzhub-release';
 
-process.stdout.write(`## Scarica · Download
+const testNote = isTest
+  ? `> **Versione di prova** · *Test build*: per chi la vuole provare prima dell'uscita. Le novità segnate «in prova» possono cambiare; segnala cosa non va nelle [Issue](https://github.com/Redmango-Agency/PTZhub/issues/new/choose).\n\n`
+  : '';
+
+process.stdout.write(`${testNote}## Scarica · Download
 
 | | |
 |---|---|
