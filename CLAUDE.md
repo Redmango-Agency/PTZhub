@@ -8,7 +8,7 @@ Storico completo dello sviluppo, decisioni e cose in sospeso: `storico.local.md`
 - Rispondi in italiano, breve e concreto. Commenti nel codice e messaggi dei commit in italiano.
 - Ogni testo dell'interfaccia va in italiano **e** inglese in `src/shared/i18n.js`: mai chiavi non tradotte.
 - Stile grafico chiaro tipo Apple (non scuro), angoli morbidi; riusa le classi di `src/renderer/styles.css` e `base.css`.
-- Sicurezza in diretta: STOP sempre raggiungibile (Esc/Spazio, tasto rosso, anche nelle Impostazioni); la testa si ferma al rilascio, alla perdita del fuoco e alla chiusura; STOP, Home o un comando manuale interrompono un richiamo in corso.
+- Sicurezza in diretta: STOP sempre raggiungibile (Esc/Spazio, tasto rosso sotto il joystick e nelle Impostazioni; le viste Compatta e Laterale hanno solo le inquadrature, scelta di Daniele); la testa si ferma al rilascio, alla perdita del fuoco e alla chiusura; STOP, Home o un comando manuale interrompono un richiamo in corso.
 - Non è una regia video: il cambio tra le camere lo fa OBS. Più PTZ (solo per muoverle) è previsto per la 2.0.
 - Tutti i comandi passano dal centro operativo `src/main/hub.js` (app, pannello OBS, indirizzi web, tasti globali, Stream Deck), così tutti vedono la stessa inquadratura attiva.
 

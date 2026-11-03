@@ -18,6 +18,7 @@ const { Hub } = require('./hub');
 const { ControlServer } = require('./control');
 const I18N = require('../shared/i18n');
 const updates = require('./updates');
+const { scanCameraApps } = require('./cam-apps');
 const PKG = require('../../package.json');
 
 const { t } = I18N;
@@ -588,6 +589,25 @@ function updateErrorText(e) {
   return t('up.err.network');
 }
 
+// Windows: programmi che hanno la precedenza sulla camera USB (OBS, Zoom…). L'anteprima USB di
+// PTZ Hub li controlla ogni 2 secondi e lascia libera la camera; i comandi non ne hanno bisogno.
+let camApps = [];
+function watchCameraApps() {
+  if (process.platform !== 'win32') return;
+  const self = [path.basename(process.execPath)];
+  const tick = async () => {
+    try {
+      const list = store.settings.preview.source === 'usb' ? await scanCameraApps(self) : [];
+      if (JSON.stringify(list) !== JSON.stringify(camApps)) {
+        camApps = list;
+        sendMain('camapps:changed', list);
+      }
+    } catch (_) { /* nuovo tentativo al giro dopo */ }
+    setTimeout(tick, 2000).unref();
+  };
+  tick();
+}
+
 function scheduleUpdateChecks() {
   clearTimeout(updateTimer);
   updateTimer = null;
@@ -642,6 +662,7 @@ function registerIpc() {
       maximized: !!(win && !win.isDestroyed() && win.isMaximized()),
     },
     update: updateStatus,
+    camApps,
   });
 
   ipcMain.handle('settings:save', async (_e, partial) => {
@@ -911,6 +932,7 @@ app.whenReady().then(() => {
   applyGlobalHotkeys();
   startControl().catch((e) => { apiStatus = { state: 'error', detail: e.message }; });
   scheduleUpdateChecks();
+  watchCameraApps();
 });
 
 // In uscita si manda lo stop e si aspetta che parta prima di chiudere i socket

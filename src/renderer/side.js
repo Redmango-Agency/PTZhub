@@ -105,8 +105,6 @@ $('#pList').addEventListener('click', (e) => {
   const row = e.target.closest('.p-row');
   if (row) recall(presets.find((x) => x.id === row.dataset.id));
 });
-$('#sHome').addEventListener('click', () => { activeId = null; render(); ptz.cmd('home'); });
-$('#sStop').addEventListener('click', () => ptz.cmd('stop'));
 $('#sSwap').addEventListener('click', async () => {
   view = await ptz.setSide(view.side === 'left' ? 'right' : 'left');
   render();

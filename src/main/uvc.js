@@ -24,8 +24,9 @@ const TIMING = {
   ptFullS: 8, // pan/tilt: la corsa più lunga in 8 s con il joystick al massimo
   zoomFullS: 5, // zoom: da largo a stretto in 5 s
   focusFullS: 4, // fuoco: tutta la corsa in 4 s
-  recallFullS: 3, // richiamo alla velocità 1 (da 100% in su la camera va alla sua velocità)
-  homeSpeed: 0.8,
+  confirmEveryMs: 300, // richiamo: ogni quanto si controlla che la camera sia arrivata
+  confirmMs: 12000, // per quanto al massimo (le camere lente impiegano qualche secondo)
+  maxResend: 4, // quante volte si rimanda la posizione se la camera si è fermata altrove
   retryMs: 3000, // camera scollegata o occupata: si riprova ogni 3 s
 };
 
@@ -73,6 +74,7 @@ class UvcCamera extends EventEmitter {
     this.idleWaiters = [];
     this.gen = 0; // cambia con STOP, Home e i comandi manuali: un richiamo in corso si ferma
     this.focusAuto = true;
+    this.absMoving = false; // richiamo o Home in corso (comando assoluto in attesa di conferma)
     this.retryTimer = null;
     this.lastErrorLog = 0;
     this._onEnded = () => this._lost(t('uvc.unplugged'));
@@ -345,51 +347,78 @@ class UvcCamera extends EventEmitter {
   stopAll() {
     this.gen += 1; // ferma anche un richiamo o Home in corso
     this._stopMotion();
+    if (this.absMoving) this._halt();
   }
 
   // ---- posizioni assolute: inquadrature e Home ----------------------------
 
-  // Porta la camera su target ({ pan, tilt, zoom } già sulla sua griglia). Sotto la velocità 1
-  // si interpola a piccoli passi: la velocità del richiamo vale anche qui e STOP ferma a metà strada.
-  async _glide(target, speed01, check) {
+  // Porta la camera su target ({ pan, tilt, zoom } già sulla sua griglia) con UN comando assoluto:
+  // si va sempre alla posizione salvata, qualunque sia quella di partenza (niente passi calcolati
+  // dalla posizione attuale, che con il telecomando o un comando perso può essere sbagliata).
+  // Poi si controlla che la camera ci arrivi: alcune camere USB scartano un comando mentre la testa
+  // si muove, quindi se la camera è ferma lontano dal punto giusto il valore si rimanda.
+  async _goAbsolute(target, check) {
     const keys = Object.keys(target);
     if (!keys.length) return;
     check();
     await this._idle(); // prima finisce quello che era già partito
     check();
-    const from = {};
-    for (const k of keys) from[k] = num(this.pos[k]) ? this.pos[k] : target[k];
-    const sp = clamp(Number(speed01) || 1, 0.05, 1);
-    let dur = 0;
-    for (const k of keys) {
+    Object.assign(this.pos, target);
+    const tol = (k) => {
       const a = this.axes[k];
-      dur = Math.max(dur, (Math.abs(target[k] - from[k]) / (a.max - a.min)) * (this.tm.recallFullS / sp));
-    }
-    if (sp >= 0.99 || dur * 1000 < this.tm.tickMs * 2) {
-      Object.assign(this.pos, target);
+      return Math.max(a.step || 0, (a.max - a.min) * 0.002, 1e-6);
+    };
+    const arrived = (st) => keys.every((k) => !num(st[k]) || Math.abs(st[k] - target[k]) <= tol(k));
+    const sameAs = (a, b) => keys.every((k) => a[k] === b[k]);
+    const deadline = Date.now() + this.tm.confirmMs;
+    this.absMoving = true;
+    try {
       this._send({ ...target });
       await this._idle();
-      return;
-    }
-    const start = Date.now();
-    for (;;) {
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(this.tm.tickMs);
-      check();
-      const k01 = Math.min(1, (Date.now() - start) / (dur * 1000));
-      const e = k01 * k01 * (3 - 2 * k01); // parte e arriva dolcemente
-      const out = {};
-      for (const k of keys) {
-        this.pos[k] = k01 >= 1 ? target[k] : from[k] + (target[k] - from[k]) * e;
-        const q = k01 >= 1 ? target[k] : quantize(this.axes[k], this.pos[k]);
-        if (q !== this.last[k] || k01 >= 1) out[k] = q;
+      let prev = null;
+      let resent = 0;
+      for (;;) {
+        check();
+        let st = null;
+        // eslint-disable-next-line no-await-in-loop
+        try { st = await this.link.settings(); } catch (_) { st = null; }
+        check();
+        if (!st || arrived(st)) return; // arrivata (o la camera non comunica la posizione)
+        if (Date.now() >= deadline) {
+          this.emit('log', t('uvc.notArrived'));
+          return;
+        }
+        // camera ferma ma non sul punto giusto: il comando è andato perso, si rimanda
+        if (prev && sameAs(st, prev) && resent < this.tm.maxResend) {
+          resent += 1;
+          this._send({ ...target });
+          // eslint-disable-next-line no-await-in-loop
+          await this._idle();
+        }
+        prev = st;
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(this.tm.confirmEveryMs);
       }
-      if (Object.keys(out).length) this._send(out);
-      if (k01 >= 1) break;
-      // eslint-disable-next-line no-await-in-loop
-      await this._idle(); // non si accumulano comandi se la camera è lenta a rispondere
+    } finally {
+      this.absMoving = false;
+      for (const k of keys) this.last[k] = target[k];
     }
-    await this._idle();
+  }
+
+  // STOP durante un richiamo: la camera USB ha già ricevuto la posizione finale; se comunica dove
+  // si trova davvero, le si rimanda quel punto così si ferma lì
+  async _halt() {
+    try {
+      const st = await this.link.settings();
+      const out = {};
+      for (const k of AXES) {
+        if (this.axes[k] && st && num(st[k])) out[k] = quantize(this.axes[k], st[k]);
+      }
+      if (Object.keys(out).length && this.ready) {
+        Object.assign(this.pos, out);
+        this._send(out);
+      }
+    } catch (_) { /* camera persa: ci pensa _lost */ }
   }
 
   // controllo per i richiami: annullato (STOP, Home, comando manuale) o camera persa
@@ -411,7 +440,7 @@ class UvcCamera extends EventEmitter {
       if (a) target[k] = quantize(a, a.min <= 0 && a.max >= 0 ? 0 : (a.min + a.max) / 2);
     }
     if (this.axes.zoom) target.zoom = quantize(this.axes.zoom, this.axes.zoom.min);
-    return this._glide(target, this.tm.homeSpeed, this._checker(this.gen, null)).catch((e) => {
+    return this._goAbsolute(target, this._checker(this.gen, null)).catch((e) => {
       if (!e || e.code !== 'CANCELLED') this.emit('log', e && e.message ? e.message : String(e));
     });
   }
@@ -448,7 +477,7 @@ class UvcCamera extends EventEmitter {
       if (this.axes[k] && num(pos[k])) target[k] = quantize(this.axes[k], pos[k]);
     }
     if (!Object.keys(target).length) throw new Error(t('uvc.noPtz'));
-    await this._glide(target, speed01, check);
+    await this._goAbsolute(target, check); // la camera USB va alla sua velocità: speed01 non serve
     // fuoco alla fine, come la camera era al salvataggio
     const f = {};
     const modes = this.axes.focusModes;

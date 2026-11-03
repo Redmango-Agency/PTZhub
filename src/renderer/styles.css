@@ -152,6 +152,8 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
 .preset.active { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring), 0 0 0 5px rgba(255, 59, 48, .14); }
 .preset.busy { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
 .preset.busy .thumb { opacity: .7; }
+.preset.dragging { opacity: .45; }
+.preset.drop-target { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue); }
 .preset .onair, .preset .arriving {
   position: absolute; top: 8px; right: 8px; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 600;
   color: #FFFFFF; display: none; white-space: nowrap;

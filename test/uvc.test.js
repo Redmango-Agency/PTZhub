@@ -66,6 +66,12 @@ class FakeLink extends EventEmitter {
   }
 
   async apply(v) {
+    // camera che scarta i comandi di posizione mentre la testa si muove (link.drop = quanti)
+    if (this.drop > 0 && this.track && (v.pan !== undefined || v.tilt !== undefined || v.zoom !== undefined)) {
+      this.drop -= 1;
+      this.applied.push({ ...v, dropped: true });
+      return this.track.getSettings();
+    }
     this.inflight += 1;
     this.maxInflight = Math.max(this.maxInflight, this.inflight);
     try {
@@ -99,7 +105,7 @@ const PTZ_CAPS = {
 const START = { pan: 0, tilt: 0, zoom: 100, focusMode: 'continuous', focusDistance: 50 };
 
 // tempi accorciati: pan/tilt tutta la corsa (340) in 0,5 s alla velocità 1
-const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, recallFullS: 0.3, retryMs: 60 };
+const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, retryMs: 60, confirmEveryMs: 20, confirmMs: 1500 };
 
 async function makeCam(linkOpts, camOpts = {}) {
   const link = new FakeLink(linkOpts);
@@ -210,8 +216,14 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   before = link.applied.length;
   await cam.gotoPosition(pos, 0.5);
   assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [pos.pan, pos.tilt, pos.zoom]);
-  assert.ok(moves(before) > 3, 'velocità 50%: a passi');
-  ok(`richiamo esatto pan ${pos.pan} tilt ${pos.tilt} zoom ${pos.zoom}, veloce e a passi`);
+  assert.strictEqual(moves(before), 1, 'anche a velocità ridotta: un solo comando assoluto, niente passi dalla posizione attuale');
+  // la camera perde il comando mentre si muove: si rimanda finché non è sul punto salvato
+  link.drop = 2;
+  before = link.applied.length;
+  await cam.gotoPosition({ kind: 'usb', pan: 50, tilt: 20, zoom: 200 }, 1);
+  assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [50, 20, 200]);
+  assert.strictEqual(moves(before), 3, 'due comandi persi, il terzo arriva');
+  ok(`richiamo esatto pan ${pos.pan} tilt ${pos.tilt} zoom ${pos.zoom}: sempre la posizione salvata, rimandata se la camera la perde`);
 
   // 6. fuoco salvato in manuale: al richiamo torna la distanza
   cam.setFocusAuto(false);
@@ -231,21 +243,21 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   assert.strictEqual(link.cur.focusMode, 'continuous');
   ok('fuoco manuale salvato e richiamato');
 
-  // 7. annullamento: cancelled() durante il richiamo lento ferma i passi che mancano
+  // 7. annullamento: cancelled() mentre si aspetta che la camera arrivi ferma tutto
   await cam.gotoPosition({ kind: 'usb', pan: -170, tilt: -30, zoom: 100 }, 1);
+  link.drop = 1000; // camera che non arriva mai: il richiamo resta in attesa
   let stopNow = false;
   const pr = cam.gotoPosition({ kind: 'usb', pan: 170, tilt: 90, zoom: 400 }, 0.2, () => stopNow);
-  await sleep(120);
+  await sleep(60);
   stopNow = true;
   await assert.rejects(pr, (e) => e.code === 'CANCELLED');
-  const mid = { ...link.cur };
+  const sent = link.applied.length;
   await sleep(100);
-  assert.deepStrictEqual(link.cur, mid, 'dopo l\'annullamento la camera non riceve altro');
-  assert.ok(mid.pan > -170 && mid.pan < 170, `fermo a metà strada: ${mid.pan}`);
-  ok(`richiamo annullato a metà strada (pan ${mid.pan})`);
+  assert.strictEqual(link.applied.length, sent, 'dopo l\'annullamento la camera non riceve altro');
+  ok('richiamo annullato: nessun altro comando alla camera');
 
   // 8. STOP del driver e comando manuale interrompono un richiamo; Home
-  let pr2 = cam.gotoPosition({ kind: 'usb', pan: -170, tilt: 0, zoom: 100 }, 0.2);
+  let pr2 = cam.gotoPosition({ kind: 'usb', pan: -170, tilt: 0, zoom: 100 }, 0.2); // drop ancora attivo
   await sleep(60);
   cam.stopAll();
   await assert.rejects(pr2, (e) => e.code === 'CANCELLED');
@@ -254,6 +266,7 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   cam.move(0.3, 0);
   await assert.rejects(pr2, (e) => e.code === 'CANCELLED');
   cam.move(0, 0);
+  link.drop = 0;
   await cam.home();
   assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [0, 0, 100]);
   ok('STOP e joystick fermano il richiamo; Home = pan 0, tilt 0, zoom minimo');
@@ -332,6 +345,7 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
 
   // 14. camera scollegata durante l'uso: «non risponde», poi torna; richiamo in corso fermato
   ({ cam, link } = await makeCam());
+  link.drop = 1000; // richiamo in attesa che la camera arrivi
   const pr3 = cam.gotoPosition({ kind: 'usb', pan: 170, tilt: 0, zoom: 100 }, 0.2);
   await sleep(40);
   link.openError = { name: 'NotFoundError', message: 'Requested device not found' };
@@ -344,6 +358,7 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   await sleep(100);
   assert.strictEqual(cam.state, 'error');
   link.openError = null;
+  link.drop = 0;
   link.emit('devicechange');
   await sleep(700);
   assert.strictEqual(cam.state, 'connected');
@@ -364,6 +379,7 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   assert.strictEqual((await hub.recallId('a', 1)).id, 'a');
   assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [120, 40, 300]);
   assert.strictEqual(hub.activeId, 'a');
+  link.drop = 1000; // la camera non arriva subito: il richiamo è ancora in corso quando arriva STOP
   let rp = hub.recallId('b');
   await sleep(80);
   hub.stop();
@@ -375,6 +391,7 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   assert.strictEqual(await rp, null);
   assert.strictEqual(hub.targetId, null, 'niente più «in arrivo»');
   cam.move(0, 0);
+  link.drop = 0;
   hub.nudge('left', 100);
   await sleep(200);
   hub.zoomPulse('in', 100);

@@ -334,8 +334,6 @@ function goHome() {
 $('#btnOnePush').addEventListener('click', () => ptz.cmd('onePush'));
 $('#btnHome').addEventListener('click', goHome);
 $('#btnStop').addEventListener('click', () => stopAll());
-$('#cHome').addEventListener('click', goHome);
-$('#cStop').addEventListener('click', () => stopAll());
 
 // Tastiera. Ogni tasto premuto viene ricordato per codice fisico (e.code): così il
 // rilascio ferma sempre il movimento, anche se nel frattempo è cambiato Maiusc.
@@ -531,6 +529,7 @@ function renderPreviewState() {
   else if (live) setPreviewMsg('');
   else if (src === 'rtsp' && !settings.preview.rtspUrl) setPreviewMsg(t('preview.notConfigured'), t('preview.needUrl'));
   else if (camOffline()) setPreviewMsg(t('preview.noSignal'), t('preview.noSignalSub'));
+  else if (previewState.state === 'paused') setPreviewMsg(t('preview.yielded', { apps: previewState.detail }), t('preview.yieldedSub'));
   else if (previewState.state === 'connecting') setPreviewMsg(t('preview.connecting'), '', 'connecting');
   else if (previewState.state === 'error') setPreviewMsg(t('preview.noSignal'), t('preview.error', { detail: previewState.detail }));
   else setPreviewMsg(t('preview.noSignal'));
@@ -544,7 +543,7 @@ function renderVideoBadge() {
   let cls = 'off';
   let txt = t('pv.badgeOff');
   if (src !== 'none') {
-    if (previewState.state === 'live') { cls = 'ok'; txt = t('pv.badgeLive'); } else if (previewState.state === 'connecting') { cls = 'wait'; txt = t('pv.badgeWait'); } else if (previewState.state === 'error') { cls = 'bad'; txt = t('pv.badgeBad'); } else { txt = t('pv.badgeIdle'); }
+    if (previewState.state === 'paused') { cls = 'wait'; txt = t('pv.badgePaused'); } else if (previewState.state === 'live') { cls = 'ok'; txt = t('pv.badgeLive'); } else if (previewState.state === 'connecting') { cls = 'wait'; txt = t('pv.badgeWait'); } else if (previewState.state === 'error') { cls = 'bad'; txt = t('pv.badgeBad'); } else { txt = t('pv.badgeIdle'); }
   }
   b.className = `state-badge ${cls}`;
   b.textContent = txt;
@@ -569,11 +568,35 @@ ptz.onPreviewStatus((s) => {
   renderPreviewState();
 });
 
+// Windows: OBS, Zoom e simili hanno la precedenza sulla camera USB. Se sono aperti l'anteprima
+// si mette in pausa (la camera resta a loro, i comandi funzionano lo stesso) e torna da sola
+// quando la camera si libera; se la camera è occupata si riprova ogni pochi secondi.
+let camApps = [];
+let usbRetryTimer = null;
+const usbYield = () => info.platform === 'win32' && camApps.length > 0;
+
+function scheduleUsbRetry() {
+  clearTimeout(usbRetryTimer);
+  usbRetryTimer = setTimeout(() => {
+    if (settings.preview.source === 'usb' && view.mode === 'full' && !usbStream) applyPreviewSource();
+  }, 4000);
+}
+
 async function startUsb() {
   stopUsb();
+  clearTimeout(usbRetryTimer);
   try {
     const constraints = { video: settings.preview.usbDeviceId ? { deviceId: { exact: settings.preview.usbDeviceId } } : true, audio: false };
-    usbStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    // nel frattempo si è aperto OBS (o l'anteprima non serve più): la camera si lascia subito
+    if (usbYield() || settings.preview.source !== 'usb' || view.mode !== 'full') {
+      stream.getTracks().forEach((tr) => tr.stop());
+      applyPreviewSource();
+      return;
+    }
+    usbStream = stream;
+    // camera staccata o presa da un altro programma: si riprova da soli
+    stream.getVideoTracks().forEach((tr) => { tr.onended = () => { if (usbStream === stream) { stopUsb(); previewState = { state: 'error', detail: t('preview.usbBusy') }; renderPreviewState(); scheduleUsbRetry(); } }; });
     usbVideo.srcObject = usbStream;
     await usbVideo.play();
     previewState = { state: 'live', detail: '' };
@@ -586,8 +609,10 @@ async function startUsb() {
     };
     loop();
   } catch (e) {
-    previewState = { state: 'error', detail: t('preview.usbError', { detail: e.message }) };
+    const busy = ['NotReadableError', 'TrackStartError', 'AbortError'].includes(e && e.name);
+    previewState = { state: 'error', detail: busy ? t('preview.usbBusy') : t('preview.usbError', { detail: e.message }) };
     renderPreviewState();
+    scheduleUsbRetry();
   }
 }
 
@@ -601,6 +626,15 @@ function stopUsb() {
 function applyPreviewSource() {
   // nelle viste ridotte l'anteprima non si vede: anche la camera USB si ferma
   if (settings.preview.source === 'usb' && view.mode === 'full') {
+    if (usbYield()) {
+      // la camera è di OBS, Zoom…: niente anteprima finché non la lasciano
+      stopUsb();
+      clearTimeout(usbRetryTimer);
+      if (lastFrame instanceof HTMLVideoElement) lastFrame = null;
+      previewState = { state: 'paused', detail: camApps.join(', ') };
+      renderPreviewState();
+      return;
+    }
     if (!usbStream) startUsb();
   } else {
     stopUsb();
@@ -669,9 +703,41 @@ function renderPresets() {
       recall(p);
     });
     b.addEventListener('contextmenu', (e) => { e.preventDefault(); openEditor(p.id); });
+    // trascinando una miniatura si cambia l'ordine (e quindi il tasto 1–9, 0)
+    b.draggable = !editor;
+    b.addEventListener('dragstart', (e) => {
+      dragPresetId = p.id;
+      b.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', p.id);
+    });
+    b.addEventListener('dragend', () => {
+      dragPresetId = null;
+      $$('#presetGrid .preset').forEach((x) => x.classList.remove('dragging', 'drop-target'));
+    });
+    b.addEventListener('dragover', (e) => {
+      if (!dragPresetId || dragPresetId === p.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      b.classList.add('drop-target');
+    });
+    b.addEventListener('dragleave', () => b.classList.remove('drop-target'));
+    b.addEventListener('drop', (e) => {
+      e.preventDefault();
+      b.classList.remove('drop-target');
+      const from = presets.findIndex((x) => x.id === dragPresetId);
+      const to = presets.findIndex((x) => x.id === p.id);
+      dragPresetId = null;
+      if (from < 0 || to < 0 || from === to) return;
+      const [moved] = presets.splice(from, 1);
+      presets.splice(to, 0, moved);
+      persist();
+      renderPresets();
+    });
     grid.appendChild(b);
   });
 }
+let dragPresetId = null;
 
 function renderCompactList() {
   const box = $('#compactList');
@@ -769,6 +835,7 @@ function renderEditor() {
   $('#edTitle').textContent = p ? t('ed.editTitle', { name: p.name }) : t('ed.new');
   $('#edSave').textContent = p ? t('ed.saveChanges') : t('ed.save');
   $('#edExisting').style.display = p ? '' : 'none';
+  $('#edSaveName').style.display = p ? '' : 'none'; // solo il nome: la posizione salvata resta com'è
   $('#edLeft').disabled = idx <= 0;
   $('#edRight').disabled = idx < 0 || idx >= presets.length - 1;
   const keyIdx = p ? idx : presets.length;
@@ -846,6 +913,20 @@ async function saveEditor() {
   await closeEditor();
 }
 
+// solo il nome (anche con la camera spenta): posizione, zoom e fuoco salvati non cambiano
+async function saveNameOnly() {
+  const p = editorPreset();
+  if (!p) return;
+  const name = $('#edName').value.trim();
+  if (name && name !== p.name) {
+    p.name = name;
+    p.updatedAt = new Date().toISOString();
+    await persist();
+    toast(t('presets.renamed', { name }), 'ok');
+  }
+  await closeEditor();
+}
+
 function moveEdited(delta) {
   const p = editorPreset();
   if (!p) return;
@@ -861,6 +942,7 @@ function moveEdited(delta) {
 $('#btnSavePreset').addEventListener('click', () => openEditor());
 $('#edSave').addEventListener('click', saveEditor);
 $('#edCancel').addEventListener('click', () => closeEditor());
+$('#edSaveName').addEventListener('click', saveNameOnly);
 $('#edLeft').addEventListener('click', () => moveEdited(-1));
 $('#edRight').addEventListener('click', () => moveEdited(1));
 $('#edName').addEventListener('keydown', (e) => {
@@ -2085,9 +2167,8 @@ async function wzUseUsb() {
     const camera = {
       ...settings.camera, protocol: 'usb', usbDeviceId: u.deviceId, usbLabel: u.label, name: u.label,
     };
-    // Windows: il video resta a OBS o Zoom (anteprima spenta, si può accendere dalle Impostazioni);
-    // altrove l'anteprima viene dalla stessa camera, la cattura è condivisa con i comandi
-    const preview = info.uvcNative ? { source: 'none' } : { source: 'usb', usbDeviceId: u.deviceId };
+    // anteprima dalla stessa camera; su Windows si mette in pausa da sola quando OBS o Zoom la usano
+    const preview = { source: 'usb', usbDeviceId: u.deviceId };
     await wzSave({ camera, presetMode: 'app', preview });
     wz.saved = 'usb';
     camFirstAttempt = true;
@@ -2293,6 +2374,11 @@ function renderAll() {
   ptz.onSettingsChanged((s2) => { settings = s2; });
   ptz.onViewChanged((v) => applyView(v));
   ptz.onMaximized((on) => renderMaximized(on));
+  camApps = Array.isArray(s.camApps) ? s.camApps : [];
+  ptz.onCamApps((list) => {
+    camApps = Array.isArray(list) ? list : [];
+    applyPreviewSource();
+  });
 
   // primo avvio di questo account: la procedura guidata trova la telecamera
   if (!camConfigured(settings.camera)) {
