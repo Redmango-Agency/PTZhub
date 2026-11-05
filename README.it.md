@@ -25,7 +25,7 @@
   <a href="https://redmango.agency/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=ptzhub"><img alt="Realizzato da *redmango" src="https://img.shields.io/badge/realizzato%20da-*redmango-C0392B"></a>
 </p>
 
-PTZ Hub ti dà anteprima dal vivo, joystick, zoom e fuoco, e **inquadrature** che richiami con un clic o un tasto. Pensato per eventi, conferenze, chiese e dirette streaming. *(Fino alla versione 1.3 il programma si chiamava PTZ Panel.)*
+PTZ Hub ti dà anteprima dal vivo, frecce (lente o veloci), zoom e fuoco, e **inquadrature** che richiami con un clic o un tasto. Pensato per eventi, conferenze, chiese e dirette streaming. *(Fino alla versione 1.3 il programma si chiamava PTZ Panel.)*
 
 ## Cosa fa
 
@@ -60,7 +60,7 @@ Se la camera non sa comunicare la propria posizione, le inquadrature usano le me
 ### Camere collegate via USB (in prova)
 - Si sceglie al primo avvio («Camera collegata via USB?») o in Impostazioni › Telecamera › Protocollo «USB (UVC)». PTZ Hub apre la camera e dice subito se accetta pan, tilt, zoom e fuoco manuale via USB.
 - Molte camere PTZ dal cavo USB mandano solo il video: in quel caso compare «Questa camera non accetta movimenti via USB» e serve il cavo di rete con VISCA o ONVIF. Se accetta solo lo zoom, si usa lo zoom e lo si dice.
-- Le camere USB accettano solo posizioni assolute: joystick, frecce, pannello OBS e Stream Deck muovono la camera a piccoli passi (25 al secondo) in base alla velocità; STOP ferma subito. Le inquadrature salvano la posizione esatta nel programma (le camere USB non hanno memorie interne); Home porta pan e tilt al centro e lo zoom al minimo.
+- Le camere USB accettano solo posizioni assolute: frecce a schermo e da tastiera, zoom, pannello OBS e Stream Deck muovono la camera a piccoli passi (25 al secondo) in base alla velocità; STOP ferma subito. Le inquadrature salvano la posizione esatta nel programma (le camere USB non hanno memorie interne); Home porta pan e tilt al centro e lo zoom al minimo.
 - **Windows: il video resta a OBS o Zoom.** PTZ Hub muove la camera USB senza aprirne il video, con la funzione di Windows per i comandi della camera (la stessa della scheda «Controllo telecamera» di OBS): così OBS o Zoom continuano a usare la camera nello stesso momento, su Windows 10 e 11, senza impostazioni da cambiare. L'anteprima dentro PTZ Hub è spenta di default; si accende dalle Impostazioni se nessun altro programma usa la camera. Prova veloce senza PTZ Hub: in OBS doppio clic sulla sorgente della camera → «Configura video» → «Controllo telecamera»: se Pan, Tilt e Zoom muovono la camera, PTZ Hub la può muovere.
 - Su macOS più programmi possono usare la stessa camera, e anteprima e comandi di PTZ Hub la condividono.
 - Se il cavo si stacca la Regia mostra «La camera USB non risponde» e si ricollega da sola appena la camera torna.

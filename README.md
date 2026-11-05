@@ -25,7 +25,7 @@
   <a href="https://redmango.agency/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=ptzhub"><img alt="Made by *redmango" src="https://img.shields.io/badge/made%20by-*redmango-C0392B"></a>
 </p>
 
-PTZ Hub gives you live preview, joystick, zoom and focus, and **presets** you recall with one click or one key. Built for events, conferences, churches and live streaming. *(Up to version 1.3 the program was called PTZ Panel.)*
+PTZ Hub gives you live preview, arrows (slow or fast), zoom and focus, and **presets** you recall with one click or one key. Built for events, conferences, churches and live streaming. *(Up to version 1.3 the program was called PTZ Panel.)*
 
 ## Features
 
@@ -60,7 +60,7 @@ If the camera can't report its position, presets use the camera's internal memor
 ### USB-connected cameras (beta)
 - Choose it on first start ("Camera connected over USB?") or in Settings › Camera › Protocol "USB (UVC)". PTZ Hub opens the camera and tells you right away whether it accepts pan, tilt, zoom and manual focus over USB.
 - Many PTZ cameras send only video over the USB cable: then you get "This camera does not accept movements over USB" and you need the network cable with VISCA or ONVIF. If it only accepts zoom, zoom is used and you are told so.
-- USB cameras only accept absolute positions: joystick, arrow keys, OBS dock and Stream Deck move the camera in small steps (25 per second) according to the speed; STOP stops at once. Presets store the exact position in the app (USB cameras have no internal memories); Home brings pan and tilt to the centre and zoom to the widest.
+- USB cameras only accept absolute positions: on-screen and keyboard arrows, zoom, OBS dock and Stream Deck move the camera in small steps (25 per second) according to the speed; STOP stops at once. Presets store the exact position in the app (USB cameras have no internal memories); Home brings pan and tilt to the centre and zoom to the widest.
 - **Windows: the video stays with OBS or Zoom.** PTZ Hub moves a USB camera without opening its video, through the Windows camera-control interface (the same as the "Camera Control" tab in OBS), so OBS or Zoom keep using the camera at the same time, on Windows 10 and 11 with no setting to change. The preview inside PTZ Hub is off by default; you can turn it on in Settings if no other program uses the camera. Quick check without PTZ Hub: in OBS double-click the camera source → "Configure Video" → "Camera Control": if Pan, Tilt and Zoom move the camera, PTZ Hub can move it too.
 - On macOS several programs can use the same camera, and PTZ Hub's preview and controls share it.
 - If the cable comes off, the Control room shows "The USB camera is not responding" and reconnects by itself as soon as the camera is back.

@@ -131,6 +131,20 @@ async function runMain(win, js, waitFor, result) {
   result.overflowRegia = await js(OVERFLOW);
   result.controlsFit = await js(CONTROLS_FIT);
 
+  // cerchio: tenendo premuto un tasto resta acceso, al rilascio si spegne; Lento / Veloce si salvano
+  const wr = await js("(() => { const r = document.querySelector('.wedge.right').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()");
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: wr.x, y: wr.y, button: 'left', clickCount: 1 });
+  await sleep(600);
+  result.wedgeHeld = await js("document.querySelector('.wedge.right').classList.contains('pressed')");
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: wr.x, y: wr.y, button: 'left', clickCount: 1 });
+  await sleep(200);
+  result.wedgeReleased = !(await js("document.querySelector('.wedge.right').classList.contains('pressed')"));
+  await js("document.querySelector('#moveSpeedSeg [data-v=fast]').click(); document.querySelector('#zoomSpeedSeg [data-v=fast]').click()");
+  await sleep(300);
+  result.speedsSaved = await js("window.ptz.init().then((s) => `${s.settings.moveFast}/${s.settings.zoomFast}`)");
+  await js("document.querySelector('#moveSpeedSeg [data-v=slow]').click(); document.querySelector('#zoomSpeedSeg [data-v=slow]').click()");
+  await sleep(300);
+
   // tasti rapidi
   await js("document.querySelector('#btnKeys').click()");
   await sleep(300);
@@ -194,7 +208,7 @@ async function runMain(win, js, waitFor, result) {
   // con uno slider selezionato i tasti funzionano ancora
   await js("document.querySelectorAll('.preset')[1].click()");
   await sleep(500);
-  await js("document.querySelector('#moveSpeed').focus()");
+  await js("document.querySelector('#recallSpeed').focus()");
   await js("window.dispatchEvent(new KeyboardEvent('keydown', {key:'1', code:'Digit1'}))");
   await sleep(600);
   result.activeAfterSliderFocus = await js("document.querySelector('.preset.active .name')?.textContent");

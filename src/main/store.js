@@ -32,7 +32,8 @@ const DEFAULT_SETTINGS = {
   presetMode: 'app', // app = posizioni salvate nel programma; slot = memorie interne della camera
   slotBase: 10,
   moveSpeed: 0.6,
-  fineMove: false, // «Preciso»: frecce lente per centrare l'inquadratura
+  moveFast: false, // frecce: Lento (per centrare) o Veloce
+  zoomFast: false, // zoom: Lento o Veloce
   recallSpeed: 0.7,
   language: 'auto', // auto = come Windows; oppure 'it' / 'en'
   // collegamento esterno: pannello OBS, Stream Deck, Companion, tastiere macro

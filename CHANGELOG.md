@@ -7,7 +7,7 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 ## [1.5.0] — 2026-10-31
 
 ### Aggiunto
-- **Frecce al posto del joystick**: un clic sposta la camera di un passo piccolo, per centrare l'inquadratura; tenendo premuto si muove alla velocità scelta. Al centro **Preciso** (o Maiusc sulla tastiera) per il movimento lento. Le frecce della tastiera funzionano allo stesso modo.
+- **Cerchio con 4 frecce al posto del joystick**: premi = la camera si sposta di poco, per centrare l'inquadratura; tieni premuto = si muove. Home al centro del cerchio, STOP subito sotto. **Lento / Veloce** per il movimento e, a parte, per lo zoom (se la camera ha velocità variabili; altrimenti va alla sua). Le frecce della tastiera funzionano allo stesso modo, con Maiusc sempre lento. Zoom con «− Allarga» e «Avvicina +», fuoco rapido con «Metti a fuoco».
 - **Miniature che si aggiornano con l'uso**: quando la camera arriva su un'inquadratura e nessuno la sposta a mano, la miniatura prende l'ultima immagine dell'anteprima.
 - **Comando via cavo USB (UVC), in prova**: terzo protocollo accanto a VISCA e ONVIF per le camere collegate al PC solo con il cavo USB. Funziona solo se la camera accetta pan, tilt e zoom via USB: PTZ Hub lo verifica nel primo avvio («Camera collegata via USB?») e in Impostazioni › Telecamera e mostra l'esito (pan, tilt, zoom e fuoco manuale: sì/no).
 - Con la camera USB funzionano Regia, editor delle inquadrature, viste Compatta e Laterale, pannello OBS, indirizzi web, tasti globali e plugin Stream Deck: il movimento continuo è fatto di piccoli passi assoluti (25 al secondo), le inquadrature salvano la posizione esatta, Home porta al centro con lo zoom al minimo, STOP ferma subito anche un richiamo a metà strada.
@@ -16,13 +16,13 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 ### Cambiato
 - **Inquadrature sempre nella posizione salvata (camera USB)**: il richiamo manda subito pan, tilt e zoom salvati, qualunque sia la posizione di partenza, e controlla che la camera ci arrivi; se la camera scarta il comando mentre si muove, lo rimanda.
 - **Anteprima USB che lascia il posto a OBS e Zoom (Windows)**: senza OBS l'anteprima si vede; appena si apre OBS (o Zoom, Teams… usano la camera) si mette in pausa e la camera resta a loro; quando la camera si libera l'anteprima torna da sola. Se la camera è occupata si riprova ogni pochi secondi. I comandi funzionano sempre.
-- **Viste Compatta e Laterale solo con le inquadrature**: Home e STOP restano sotto il joystick della vista completa (STOP sempre anche con Esc e Spazio).
+- **Viste Compatta e Laterale solo con le inquadrature**: Home e STOP restano nel cerchio delle frecce della vista completa (STOP sempre anche con Esc e Spazio).
 - **Modifica delle inquadrature**: «Salva solo il nome» cambia il nome senza toccare la posizione; «Salva nome e posizione» salva anche la nuova inquadratura; l'ordine (e quindi il tasto) si cambia trascinando le miniature.
 - **Camera USB su Windows insieme a OBS o Zoom**: PTZ Hub muove la camera senza aprirne il video, con la funzione di Windows per i comandi della camera (la stessa della scheda «Controllo telecamera» di OBS). OBS o Zoom continuano a usare il video, anche su Windows 10, senza impostazioni da cambiare; l'anteprima in PTZ Hub è spenta di default per le camere USB.
 - **Primo avvio**: la procedura guidata cerca insieme le camere in rete e quelle collegate via USB; se in rete non c'è nessuna camera e c'è una sola camera USB, verifica subito se accetta pan, tilt e zoom.
 - **Ricerca delle telecamere più precisa**: compaiono solo i dispositivi che rispondono come telecamere (VISCA via UDP, Sony o TCP, RTSP oppure ONVIF). Router, telefoni VoIP, stampanti e altri servizi con la sola pagina web non compaiono più.
 - I testi sull'anteprima USB non dicono più che i movimenti passano sempre dalla rete: via USB funzionano se la camera lo permette.
-- Un richiamo interrotto direttamente dalla camera (per esempio dal joystick della Regia) non resta più segnato «In arrivo».
+- Un richiamo interrotto direttamente dalla camera (per esempio dalle frecce della Regia) non resta più segnato «In arrivo».
 
 ## [1.4.0] — 2026-10-31
 

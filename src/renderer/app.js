@@ -247,23 +247,33 @@ function stopAll() {
   ptz.cmd('stop');
 }
 
-// Frecce. Un clic = un passo piccolo, per centrare l'inquadratura; tenendo premuto (oltre 350 ms)
-// la camera si muove alla velocità scelta. «Preciso» (o Maiusc sulla tastiera) = movimento lento.
+// Cerchio con 4 tasti. Un clic = un passo piccolo, per centrare l'inquadratura; tenendo premuto
+// (oltre 350 ms) la camera si muove. Lento / Veloce per il movimento e, a parte, per lo zoom;
+// sulla tastiera Maiusc = sempre lento. Se la camera non ha velocità variabili va alla sua.
 const DIR_VEC = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
 const HOLD_MS = 350;
-const FINE_SPEED = 0.12;
+const SPEED = { move: { slow: 0.12, fast: 0.6 }, zoom: { slow: 0.15, fast: 0.7 } };
 let dpadHold = null; // { btn, dir, timer, moving }
 
-const fineOn = (shift = false) => !!settings.fineMove || shift;
-const holdSpeed = (shift = false) => (fineOn(shift) ? Math.min(settings.moveSpeed, FINE_SPEED) : settings.moveSpeed);
+const holdSpeed = (shift = false) => SPEED.move[settings.moveFast && !shift ? 'fast' : 'slow'];
+const zoomSpeed = (shift = false) => SPEED.zoom[settings.zoomFast && !shift ? 'fast' : 'slow'];
 
-function renderFine() {
-  $('#btnFine').setAttribute('aria-pressed', settings.fineMove ? 'true' : 'false');
+function renderSpeeds() {
+  segSet($('#moveSpeedSeg'), settings.moveFast ? 'fast' : 'slow');
+  segSet($('#zoomSpeedSeg'), settings.zoomFast ? 'fast' : 'slow');
 }
-$('#btnFine').addEventListener('click', () => {
-  settings.fineMove = !settings.fineMove;
-  renderFine();
-  ptz.saveSettings({ fineMove: settings.fineMove });
+segBind($('#moveSpeedSeg'), (v) => {
+  settings.moveFast = v === 'fast';
+  ptz.saveSettings({ moveFast: settings.moveFast });
+  // un movimento già in corso cambia subito velocità
+  if (dpadHold && dpadHold.moving) {
+    const [x, y] = DIR_VEC[dpadHold.dir];
+    setMove(x * holdSpeed(), y * holdSpeed());
+  }
+});
+segBind($('#zoomSpeedSeg'), (v) => {
+  settings.zoomFast = v === 'fast';
+  ptz.saveSettings({ zoomFast: settings.zoomFast });
 });
 
 function dpadRelease() {
@@ -275,7 +285,7 @@ function dpadRelease() {
   if (was) setMove(0, 0);
 }
 
-for (const b of $$('#dpad [data-dir]')) {
+for (const b of $$('#dpad .wedge[data-dir]')) {
   b.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     dpadRelease();
@@ -317,7 +327,7 @@ for (const b of $$('.hold')) {
     markManual();
     if (b.dataset.zoom) {
       zoomActive = true;
-      ptz.cmd('zoom', Number(b.dataset.zoom) * holdSpeed());
+      ptz.cmd('zoom', Number(b.dataset.zoom) * zoomSpeed());
     } else if (b.dataset.focus) {
       focusActive = true;
       setAfUi(false);
@@ -374,7 +384,7 @@ function keyZoom(shift) {
   const z = (held('zoomIn') ? 1 : 0) - (held('zoomOut') ? 1 : 0);
   zoomActive = z !== 0;
   if (z) markManual();
-  ptz.cmd('zoom', z * holdSpeed(shift));
+  ptz.cmd('zoom', z * zoomSpeed(shift));
 }
 
 const CODE_ACTIONS = {
@@ -2411,7 +2421,6 @@ function renderAll() {
   camState = s.camStatus;
   previewState = s.previewStatus;
   $('#account').textContent = info.user;
-  bindSlider('moveSpeed', 'moveSpeed');
   bindSlider('recallSpeed', 'recallSpeed');
   setAfUi(true);
   applyView(s.view);
@@ -2440,11 +2449,11 @@ function renderAll() {
   ptz.onApiStatus((st) => renderApiStatus(st));
   renderUpdate(s.update || null);
   ptz.onUpdateStatus((st) => renderUpdate(st));
-  ptz.onSettingsChanged((s2) => { settings = s2; });
+  ptz.onSettingsChanged((s2) => { settings = s2; renderSpeeds(); });
   ptz.onViewChanged((v) => applyView(v));
   ptz.onMaximized((on) => renderMaximized(on));
   ptz.onCamManual(() => markManual()); // comandi manuali da OBS, Stream Deck, indirizzi web
-  renderFine();
+  renderSpeeds();
   camApps = Array.isArray(s.camApps) ? s.camApps : [];
   ptz.onCamApps((list) => {
     camApps = Array.isArray(list) ? list : [];
