@@ -21,7 +21,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const TIMING = {
   tickMs: 40, // 25 aggiornamenti al secondo
-  ptFullS: 8, // pan/tilt: la corsa più lunga in 8 s con il joystick al massimo
+  ptFullS: 20, // pan/tilt: la corsa più lunga in 20 s alla velocità massima (si centra senza scatti)
   zoomFullS: 5, // zoom: da largo a stretto in 5 s
   focusFullS: 4, // fuoco: tutta la corsa in 4 s
   confirmEveryMs: 300, // richiamo: ogni quanto si controlla che la camera sia arrivata
@@ -307,6 +307,26 @@ class UvcCamera extends EventEmitter {
     this.vel.y = this.axes.tilt ? clamp(Number(y) || 0, -1, 1) : 0;
     if (this.vel.x || this.vel.y) this._interrupt();
     this._kick();
+  }
+
+  // Passo piccolo (freccia premuta e rilasciata): il minimo spostamento della camera,
+  // un passo della sua griglia (almeno 1/1000 della corsa)
+  stepMove(dx, dy) {
+    if (!this.ready) return;
+    if (this.opts.invertPan) dx = -dx;
+    if (this.opts.invertTilt) dy = -dy;
+    this._stopMotion();
+    this._interrupt();
+    const out = {};
+    for (const [k, v] of [['pan', dx], ['tilt', dy]]) {
+      const a = this.axes[k];
+      if (!a || !v) continue;
+      const inc = Math.max(a.step || 0, (a.max - a.min) / 1000);
+      const base = num(this.last[k]) ? this.last[k] : (num(this.pos[k]) ? this.pos[k] : (a.min + a.max) / 2);
+      const q = quantize(a, base + Math.sign(v) * inc);
+      if (q !== base) { out[k] = q; this.pos[k] = q; }
+    }
+    if (Object.keys(out).length) this._send(out);
   }
 
   // z in [-1, 1]: >0 stretto (tele), <0 largo

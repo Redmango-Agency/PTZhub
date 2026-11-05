@@ -193,11 +193,31 @@ class Hub extends EventEmitter {
 
   onePush() { this.camera().focusOnePush(); }
 
+  // Passo minimo per centrare l'inquadratura (freccia premuta e rilasciata subito):
+  // camera USB = un passo della sua griglia; camere di rete = impulso brevissimo alla velocità più bassa
+  stepMove(dir, opts) {
+    const d = DIRS[dir];
+    if (!d) throw new Error(t('api.badCommand'));
+    this._guardRemote(opts);
+    const cam = this.camera();
+    this._supersede();
+    this.emit('manual');
+    if (typeof cam.stepMove === 'function') { cam.stepMove(d[0], d[1]); return; }
+    clearTimeout(this.pulseTimer);
+    this.pulseOn = true;
+    cam.move(d[0] * 0.01, d[1] * 0.01);
+    this.pulseTimer = setTimeout(() => {
+      this.pulseOn = false;
+      cam.move(0, 0);
+    }, 120);
+  }
+
   // Piccolo spostamento: muove per ms millisecondi e si ferma da solo (ideale per un tasto)
   nudge(dir, ms = 300, speed, opts) {
     const d = DIRS[dir];
     if (!d) throw new Error(t('api.badCommand'));
     this._guardRemote(opts);
+    this.emit('manual');
     const cam = this.camera();
     const sp = clamp(speed != null ? speed : this.store.settings.moveSpeed, 0.05, 1);
     this._supersede(); // un comando manuale prende il posto di un richiamo in corso
@@ -213,6 +233,7 @@ class Hub extends EventEmitter {
   zoomPulse(dir, ms = 300, speed, opts) {
     if (dir !== 'in' && dir !== 'out') throw new Error(t('api.badCommand'));
     this._guardRemote(opts);
+    this.emit('manual');
     const cam = this.camera();
     const sp = clamp(speed != null ? speed : this.store.settings.moveSpeed, 0.05, 1);
     this._supersede();
@@ -234,6 +255,7 @@ class Hub extends EventEmitter {
       this._guardRemote({ remote: true });
       // un movimento arrivato in ritardo subito dopo STOP non deve ripartire
       if (Date.now() < this.stopHoldUntil) return;
+      this.emit('manual');
     }
     const cam = this.camera();
     clearTimeout(this.moveWatchdog);

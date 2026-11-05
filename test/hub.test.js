@@ -71,6 +71,24 @@ function makeHub(cam) {
   assert.ok(cam.log.includes('move 0 0'), cam.log.join(' | '));
   ok('impulso + richiamo non riuscito: la testa si ferma');
 
+  // 3b. passo piccolo (freccia premuta e rilasciata): impulso brevissimo alla velocità minima,
+  // poi stop; con una camera che sa fare il passo da sola (USB) passa a lei; segnale «manuale»
+  cam = mockCam();
+  hub = makeHub(cam);
+  let manual = 0;
+  hub.on('manual', () => { manual += 1; });
+  hub.stepMove('left');
+  assert.strictEqual(cam.log[0], 'move -0.01 0');
+  await sleep(200);
+  assert.ok(cam.log.includes('move 0 0'), cam.log.join(' | '));
+  const stepCam = { ...mockCam(), steps: [], stepMove(x, y) { this.steps.push([x, y]); } };
+  hub = makeHub(stepCam);
+  hub.stepMove('up');
+  assert.deepStrictEqual(stepCam.steps, [[0, 1]]);
+  assert.strictEqual(manual, 1);
+  assert.throws(() => hub.stepMove('obliquo'));
+  ok('passo piccolo: impulso minimo con stop, oppure passo della camera USB');
+
   // 4. STOP durante un richiamo: i passi mancanti non partono e l'inquadratura non diventa attiva
   cam = mockCam();
   hub = makeHub(cam);

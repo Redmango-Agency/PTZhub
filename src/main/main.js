@@ -766,6 +766,7 @@ function registerIpc() {
         case 'focusAuto': camera.setFocusAuto(!!args[0]); break;
         case 'onePush': camera.focusOnePush(); break;
         case 'home': hub.home(); break;
+        case 'step': hub.stepMove(args[0]); break;
         case 'stop': hub.stop(); break;
         default: break;
       }
@@ -929,6 +930,7 @@ app.whenReady().then(() => {
   hub = new Hub({ store, getCamera: () => camera, getCamStatus: () => camStatus });
   hub.on('active', (id) => send('preset:active', id));
   hub.on('stopped', () => send('hotkey', { type: 'stop' }));
+  hub.on('manual', () => send('cam:manual')); // comandi manuali da fuori: la miniatura non va aggiornata
   control = new ControlServer(hub, { app: APP_TITLE, version: APP_VERSION });
   control.on('status', (st) => { apiStatus = st; sendMain('api:status', st); });
   registerIpc();

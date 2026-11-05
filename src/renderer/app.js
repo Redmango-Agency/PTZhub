@@ -205,7 +205,7 @@ $('#btnRetry').addEventListener('click', async () => {
 $('#btnCamSettings').addEventListener('click', () => openSettings('camera'));
 
 // ---------------------------------------------------------------------------
-// Movimento: joystick, tastiera, pulsanti
+// Movimento: frecce, tastiera, pulsanti
 
 let moveTarget = { x: 0, y: 0 };
 let moveSentAt = 0;
@@ -215,6 +215,7 @@ let moveActive = false;
 function setMove(x, y) {
   moveTarget = { x, y };
   moveActive = x !== 0 || y !== 0;
+  if (moveActive) markManual();
   const now = performance.now();
   const flush = () => {
     moveSentAt = performance.now();
@@ -225,7 +226,7 @@ function setMove(x, y) {
   else { clearTimeout(moveTimer); moveTimer = setTimeout(flush, 50 - (now - moveSentAt)); }
 }
 
-// riporta a riposo joystick, pulsanti e tasti (senza mandare comandi)
+// riporta a riposo frecce, pulsanti e tasti (senza mandare comandi)
 function resetManualUi() {
   clearTimeout(moveTimer);
   moveTarget = { x: 0, y: 0 };
@@ -233,9 +234,10 @@ function resetManualUi() {
   zoomActive = false;
   focusActive = false;
   keys.clear();
-  joyPointer = null;
+  keyHoldTimers.forEach((tm) => clearTimeout(tm));
+  keyHoldTimers.clear();
+  if (dpadHold) { clearTimeout(dpadHold.timer); dpadHold.btn.classList.remove('pressed'); dpadHold = null; }
   $$('.hold.pressed').forEach((b) => b.classList.remove('pressed'));
-  resetKnob();
 }
 
 $('#btnStopPage').addEventListener('click', () => stopAll());
@@ -245,50 +247,58 @@ function stopAll() {
   ptz.cmd('stop');
 }
 
-const joy = $('#joy');
-const knob = joy.querySelector('.knob');
-let joyPointer = null;
+// Frecce. Un clic = un passo piccolo, per centrare l'inquadratura; tenendo premuto (oltre 350 ms)
+// la camera si muove alla velocità scelta. «Preciso» (o Maiusc sulla tastiera) = movimento lento.
+const DIR_VEC = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
+const HOLD_MS = 350;
+const FINE_SPEED = 0.12;
+let dpadHold = null; // { btn, dir, timer, moving }
 
-function resetKnob() {
-  knob.style.transform = 'translate(-50%, -50%)';
-  joy.classList.remove('active');
+const fineOn = (shift = false) => !!settings.fineMove || shift;
+const holdSpeed = (shift = false) => (fineOn(shift) ? Math.min(settings.moveSpeed, FINE_SPEED) : settings.moveSpeed);
+
+function renderFine() {
+  $('#btnFine').setAttribute('aria-pressed', settings.fineMove ? 'true' : 'false');
 }
-
-function shape(v) {
-  const dz = 0.1;
-  const a = Math.abs(v);
-  if (a < dz) return 0;
-  return Math.sign(v) * ((a - dz) / (1 - dz)) ** 1.6; // più precisione vicino al centro
-}
-
-function joyUpdate(e) {
-  const r = joy.getBoundingClientRect();
-  const R = r.width / 2 - knob.offsetWidth / 2 + 1; // raggio utile: bordo meno metà della manopola
-  let dx = (e.clientX - (r.left + r.width / 2)) / R;
-  let dy = (e.clientY - (r.top + r.height / 2)) / R;
-  const m = Math.hypot(dx, dy);
-  if (m > 1) { dx /= m; dy /= m; }
-  knob.style.transform = `translate(calc(-50% + ${dx * R}px), calc(-50% + ${dy * R}px))`;
-  const sp = settings.moveSpeed;
-  setMove(shape(dx) * sp, -shape(dy) * sp);
-}
-
-joy.addEventListener('pointerdown', (e) => {
-  joyPointer = e.pointerId;
-  joy.setPointerCapture(e.pointerId);
-  joy.classList.add('active');
-  joyUpdate(e);
+$('#btnFine').addEventListener('click', () => {
+  settings.fineMove = !settings.fineMove;
+  renderFine();
+  ptz.saveSettings({ fineMove: settings.fineMove });
 });
-joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyPointer) joyUpdate(e); });
-const joyEnd = (e) => {
-  if (e.pointerId !== joyPointer) return;
-  joyPointer = null;
-  resetKnob();
-  setMove(0, 0);
-};
-joy.addEventListener('pointerup', joyEnd);
-joy.addEventListener('pointercancel', joyEnd);
-joy.addEventListener('lostpointercapture', joyEnd);
+
+function dpadRelease() {
+  if (!dpadHold) return;
+  clearTimeout(dpadHold.timer);
+  dpadHold.btn.classList.remove('pressed');
+  const was = dpadHold.moving;
+  dpadHold = null;
+  if (was) setMove(0, 0);
+}
+
+for (const b of $$('#dpad [data-dir]')) {
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    dpadRelease();
+    b.setPointerCapture(e.pointerId);
+    b.classList.add('pressed');
+    const dir = b.dataset.dir;
+    markManual();
+    ptz.cmd('step', dir); // passo piccolo subito
+    const hold = { btn: b, dir, moving: false, timer: null };
+    hold.timer = setTimeout(() => {
+      if (dpadHold !== hold) return;
+      hold.moving = true;
+      const [x, y] = DIR_VEC[dir];
+      const sp = holdSpeed();
+      setMove(x * sp, y * sp);
+    }, HOLD_MS);
+    dpadHold = hold;
+  });
+  const end = () => { if (dpadHold && dpadHold.btn === b) dpadRelease(); };
+  b.addEventListener('pointerup', end);
+  b.addEventListener('pointercancel', end);
+  b.addEventListener('lostpointercapture', end);
+}
 
 let zoomActive = false;
 let focusActive = false;
@@ -304,9 +314,10 @@ for (const b of $$('.hold')) {
     e.preventDefault();
     b.setPointerCapture(e.pointerId);
     b.classList.add('pressed');
+    markManual();
     if (b.dataset.zoom) {
       zoomActive = true;
-      ptz.cmd('zoom', Number(b.dataset.zoom) * settings.moveSpeed);
+      ptz.cmd('zoom', Number(b.dataset.zoom) * holdSpeed());
     } else if (b.dataset.focus) {
       focusActive = true;
       setAfUi(false);
@@ -346,17 +357,24 @@ const isTyping = () => {
 };
 const held = (action) => [...keys.values()].includes(action);
 
+// frecce della tastiera come quelle a schermo: un tocco = passo piccolo, tenute = movimento
+const keyHoldTimers = new Map(); // e.code -> timer del movimento continuo
+const ARROWS = ['left', 'right', 'up', 'down'];
+const continuous = (action) => [...keys.entries()].some(([code, a]) => a === action && !keyHoldTimers.has(code));
+
 function keyMove(shift) {
-  const x = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
-  const y = (held('up') ? 1 : 0) - (held('down') ? 1 : 0);
-  const sp = settings.moveSpeed * (shift ? 0.3 : 1);
+  const x = (continuous('right') ? 1 : 0) - (continuous('left') ? 1 : 0);
+  const y = (continuous('up') ? 1 : 0) - (continuous('down') ? 1 : 0);
+  if (!x && !y && !moveActive) return; // solo passi: niente stop che li accorcerebbe
+  const sp = holdSpeed(shift);
   setMove(x * sp, y * sp);
 }
 
 function keyZoom(shift) {
   const z = (held('zoomIn') ? 1 : 0) - (held('zoomOut') ? 1 : 0);
   zoomActive = z !== 0;
-  ptz.cmd('zoom', z * settings.moveSpeed * (shift ? 0.3 : 1));
+  if (z) markManual();
+  ptz.cmd('zoom', z * holdSpeed(shift));
 }
 
 const CODE_ACTIONS = {
@@ -377,7 +395,17 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (e.repeat || keys.has(e.code)) return;
     keys.set(e.code, action);
-    if (action.startsWith('zoom')) keyZoom(e.shiftKey); else keyMove(e.shiftKey);
+    if (action.startsWith('zoom')) { keyZoom(e.shiftKey); return; }
+    if (ARROWS.includes(action)) {
+      markManual();
+      ptz.cmd('step', action); // passo piccolo subito
+      const code = e.code;
+      const shift = e.shiftKey;
+      keyHoldTimers.set(code, setTimeout(() => {
+        keyHoldTimers.delete(code);
+        if (keys.has(code)) keyMove(shift);
+      }, HOLD_MS));
+    }
     return;
   }
   if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
@@ -395,6 +423,8 @@ window.addEventListener('keyup', (e) => {
   const action = keys.get(e.code);
   if (!action) return;
   keys.delete(e.code);
+  clearTimeout(keyHoldTimers.get(e.code));
+  keyHoldTimers.delete(e.code);
   if (action.startsWith('zoom')) keyZoom(e.shiftKey); else keyMove(e.shiftKey);
 });
 
@@ -644,6 +674,41 @@ function applyPreviewSource() {
   }
 }
 
+// Miniature aggiornate con l'uso: quando la camera è arrivata su un'inquadratura e nessuno la sposta
+// a mano, la miniatura prende il fotogramma dell'anteprima (dopo 3 s, poi ogni 20 s finché resta attiva).
+let thumbWatch = null; // { id, manual, timer }
+let thumbSaveTimer = null;
+
+function stopThumbWatch() {
+  if (thumbWatch) clearTimeout(thumbWatch.timer);
+  thumbWatch = null;
+}
+
+function watchThumb(id) {
+  stopThumbWatch();
+  thumbWatch = { id, manual: false, timer: setTimeout(tickThumb, 3000) };
+}
+
+// un comando manuale: l'immagine non è più quella dell'inquadratura salvata
+function markManual() {
+  if (thumbWatch) thumbWatch.manual = true;
+}
+
+function tickThumb() {
+  const w = thumbWatch;
+  if (!w) return;
+  const p = presets.find((x) => x.id === w.id);
+  if (!p || activeId !== w.id || w.manual || editor) { stopThumbWatch(); return; }
+  const th = captureThumb();
+  if (th && th !== p.thumb) {
+    p.thumb = th;
+    if (!editor) renderPresets();
+    clearTimeout(thumbSaveTimer);
+    thumbSaveTimer = setTimeout(() => persist(), 1500);
+  }
+  w.timer = setTimeout(tickThumb, 20000);
+}
+
 function captureThumb() {
   if (!lastFrame || previewState.state !== 'live') return null; // niente fotogrammi vecchi
   const [sw, sh] = sourceSize(lastFrame);
@@ -765,6 +830,7 @@ async function recall(p, opts) {
     const r = await ptz.recallPreset(p.id, settings.recallSpeed, opts);
     if (!r || !r.id) return; // superato da STOP o da un altro comando
     activeId = p.id;
+    if (!editor) watchThumb(p.id);
     if (p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
   } catch (e) {
     toast(t('presets.recallError', { name: p.name, error: errMsg(e) }), 'err');
@@ -776,12 +842,13 @@ async function recall(p, opts) {
 
 // ferma solo i comandi manuali in corso, prima di un richiamo
 function stopManualOnly() {
-  // si "staccano" joystick, pulsanti e tasti tenuti premuti: al loro rilascio
+  // si "staccano" frecce, pulsanti e tasti tenuti premuti: al loro rilascio
   // non deve partire uno stop che interromperebbe il richiamo
-  joyPointer = null;
-  resetKnob();
+  if (dpadHold) { clearTimeout(dpadHold.timer); dpadHold.btn.classList.remove('pressed'); dpadHold = null; }
   $$('.hold.pressed').forEach((btn) => btn.classList.remove('pressed'));
   keys.clear();
+  keyHoldTimers.forEach((tm) => clearTimeout(tm));
+  keyHoldTimers.clear();
   if (moveActive) setMove(0, 0);
   if (zoomActive) { zoomActive = false; ptz.cmd('zoom', 0); }
   if (focusActive) { focusActive = false; ptz.cmd('focus', 0); }
@@ -991,7 +1058,7 @@ function applyView(v) {
 
 async function setViewMode(mode) {
   if (editor && mode !== 'full') return;
-  // un tasto o il joystick tenuti premuti non devono lasciare la camera in movimento
+  // un tasto o una freccia tenuti premuti non devono lasciare la camera in movimento
   // quando la finestra cambia o sparisce (vista Laterale)
   if (mode !== 'full') stopManualOnly();
   applyView(await ptz.setView(mode));
@@ -2364,6 +2431,7 @@ function renderAll() {
   });
   // inquadratura richiamata da OBS, Stream Deck, tasti globali, vista laterale o da questa finestra
   ptz.onActive((id) => {
+    if (id !== activeId) { if (id && !editor) watchThumb(id); else stopThumbWatch(); }
     activeId = id;
     const p = presets.find((x) => x.id === id);
     if (p && p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
@@ -2375,6 +2443,8 @@ function renderAll() {
   ptz.onSettingsChanged((s2) => { settings = s2; });
   ptz.onViewChanged((v) => applyView(v));
   ptz.onMaximized((on) => renderMaximized(on));
+  ptz.onCamManual(() => markManual()); // comandi manuali da OBS, Stream Deck, indirizzi web
+  renderFine();
   camApps = Array.isArray(s.camApps) ? s.camApps : [];
   ptz.onCamApps((list) => {
     camApps = Array.isArray(list) ? list : [];

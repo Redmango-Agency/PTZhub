@@ -40,6 +40,11 @@
     // comandi
     'ctl.move': 'Movimento',
     'ctl.moveHint': 'frecce · Maiusc = lento',
+    'ctl.arrows': 'Frecce: un clic sposta di poco, tieni premuto per muovere',
+    'ctl.up': 'Su', 'ctl.down': 'Giù', 'ctl.left': 'Sinistra', 'ctl.right': 'Destra',
+    'ctl.fine': 'Preciso',
+    'ctl.fineTitle': 'Movimento lento per centrare l’inquadratura (anche tenendo premuto Maiusc)',
+    'ctl.dpadHint': 'Un clic = passo piccolo · tieni premuto = movimento',
     'ctl.speed': 'Velocità',
     'ctl.home': 'Home',
     'ctl.stop': 'STOP',
@@ -625,6 +630,11 @@
 
     'ctl.move': 'Movement',
     'ctl.moveHint': 'arrows · Shift = slow',
+    'ctl.arrows': 'Arrows: a click moves a little, hold to move',
+    'ctl.up': 'Up', 'ctl.down': 'Down', 'ctl.left': 'Left', 'ctl.right': 'Right',
+    'ctl.fine': 'Fine',
+    'ctl.fineTitle': 'Slow movement to centre the shot (also by holding Shift)',
+    'ctl.dpadHint': 'Click = small step · hold = move',
     'ctl.speed': 'Speed',
     'ctl.home': 'Home',
     'ctl.stop': 'STOP',

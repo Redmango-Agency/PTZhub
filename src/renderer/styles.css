@@ -97,7 +97,7 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-card); }
 .ctl-card { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; flex: none; }
 /* la scheda Movimento si accorcia per prima: il joystick rimpicciolisce e il resto resta intero */
-.ctl-card.move { flex: 0 1 auto; min-height: 269px; } /* contenuto con il joystick al minimo (92 px) */
+.ctl-card.move { flex: 0 1 auto; min-height: 269px; } /* frecce, velocità, Home e STOP */
 .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
 .card-head.center { align-items: center; }
 .card-head h2 { font-size: 15px; font-weight: 600; white-space: nowrap; }
@@ -106,19 +106,30 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
 .keys-link svg { width: 14px; height: 14px; }
 .divider { height: 1px; background: #EFEFF2; margin: 2px 0; }
 
-.joy {
-  align-self: center; position: relative; height: 168px; width: auto; aspect-ratio: 1 / 1; flex: 0 1 168px; min-height: 92px;
-  border-radius: 50%;
-  background: var(--fill); border: 1px solid var(--line); touch-action: none; cursor: grab;
+/* frecce: un clic = passo piccolo, tenuta = movimento; al centro «Preciso» (movimento lento) */
+.dpad {
+  --dp: 52px;
+  align-self: center; display: grid; grid-template-columns: repeat(3, var(--dp)); grid-template-rows: repeat(3, var(--dp));
+  gap: 6px; flex: none;
 }
-.joy:active { cursor: grabbing; }
-.joy-arrows { position: absolute; inset: 0; width: 100%; height: 100%; fill: var(--muted-3); }
-.knob {
-  position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; transform: translate(-50%, -50%);
-  border-radius: 50%; background: var(--surface); box-shadow: 0 2px 8px rgba(0, 0, 0, .12), 0 0 0 1px rgba(0, 0, 0, .04);
-  pointer-events: none;
+.dp {
+  display: grid; place-items: center; border-radius: 14px; background: var(--fill); border: 1px solid var(--line);
+  color: var(--text); touch-action: none; cursor: pointer; transition: background .12s, border-color .12s;
 }
-.joy.active .knob, body.editing .knob { box-shadow: 0 0 0 3px var(--blue), 0 4px 12px rgba(0, 0, 0, .14); }
+.dp svg { width: 22px; height: 22px; }
+.dp:hover { background: #E9E9EE; }
+.dp.pressed { background: var(--blue-soft); border-color: var(--blue); color: var(--blue-ink); }
+body.editing .dp:not(.fine) { border-color: #CFE0F7; }
+.dp.up { grid-column: 2; grid-row: 1; }
+.dp.left { grid-column: 1; grid-row: 2; }
+.dp.right { grid-column: 3; grid-row: 2; }
+.dp.down { grid-column: 2; grid-row: 3; }
+.dp.fine {
+  grid-column: 2; grid-row: 2; border-radius: 50%; background: var(--surface);
+  font-size: 11px; font-weight: 600; color: var(--muted); box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+.dp.fine[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: #FFFFFF; }
+.dp-hint { margin: -4px 0 0; text-align: center; font-size: 11.5px; color: var(--muted); }
 
 .slider { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .slider input { flex: 1; min-width: 60px; }
@@ -505,7 +516,9 @@ body.settings-open .toasts, body.wizard-open .toasts { top: 52px; }
   .ctl-card { padding: 12px 16px 14px; gap: 10px; }
   .ctl-card.move { min-height: 241px; }
   .controls { gap: 12px; }
-  .knob { width: 52px; height: 52px; }
+  .dpad { --dp: 38px; gap: 5px; }
+  .dp svg { width: 19px; height: 19px; }
+  .dp-hint { display: none; }
   .presets { max-height: max(214px, calc(100vh - 660px)); }
   .btn-ctl, .btn-stop { height: 40px; }
   .btn-ctl.small, .btn-stop.small { height: 36px; }
@@ -526,7 +539,8 @@ body.settings-open .toasts, body.wizard-open .toasts { top: 52px; }
   .ctl-card { padding: 10px 14px 12px; gap: 8px; }
   .ctl-card.move { min-height: 225px; }
   .controls { gap: 10px; }
-  .knob { width: 44px; height: 44px; }
+  .dpad { --dp: 34px; gap: 4px; }
+  .dp.fine { font-size: 10px; }
   .btn-ctl, .btn-stop { height: 36px; }
   .btn-ctl.small, .btn-stop.small { height: 34px; }
   .alert-text span { display: none; }

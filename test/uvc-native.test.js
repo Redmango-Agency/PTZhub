@@ -60,6 +60,23 @@ async function main() {
   await cam.disconnect();
   ok('driver USB sopra l’aiuto di Windows: movimento, STOP e richiamo esatto');
 
+  // --- passo piccolo: un passo della griglia della camera, nella direzione giusta
+  l = link();
+  cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING });
+  await cam.connect();
+  const s0 = await l.settings();
+  cam.stepMove(1, 0);
+  await sleep(60);
+  let s1 = await l.settings();
+  assert.deepStrictEqual([s1.pan - s0.pan, s1.tilt - s0.tilt], [1, 0]);
+  cam.stepMove(0, -1);
+  cam.stepMove(0, -1);
+  await sleep(60);
+  s1 = await l.settings();
+  assert.deepStrictEqual([s1.pan - s0.pan, s1.tilt - s0.tilt], [1, -2]);
+  await cam.disconnect();
+  ok('passo piccolo via USB: un passo della griglia per clic');
+
   // --- camera senza comandi via USB
   l = link('noptz');
   cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING });

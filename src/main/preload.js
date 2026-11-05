@@ -60,4 +60,5 @@ contextBridge.exposeInMainWorld('ptz', {
   onViewChanged: on('view:changed'),
   onMaximized: on('win:maximized'),
   onCamApps: on('camapps:changed'),
+  onCamManual: on('cam:manual'),
 });
