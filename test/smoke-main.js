@@ -178,10 +178,15 @@ async function runMain(win, js, waitFor, result) {
   await js("document.querySelector('#edName').value='Relatore'; document.querySelector('#edSave').click()");
   await sleep(1200);
 
-  // modifica della prima: l'editor porta la camera lì; conferma di eliminazione (annullata)
+  // modifica della prima: aprendo l'editor la camera resta ferma (nessun richiamo);
+  // conferma di eliminazione (annullata)
+  const activeBeforeEdit = await js("document.querySelector('.preset.active .name')?.textContent || ''");
   await js("document.querySelectorAll('.preset .edit')[0].click()");
   await sleep(900);
   result.editTitle = await js("document.querySelector('#edTitle').textContent");
+  result.editNoRecall = (await js("document.querySelector('.preset.active .name')?.textContent || ''")) === activeBeforeEdit
+    && !(await js("!!document.querySelector('.preset.busy')"));
+  result.editSaveLabel = await js("document.querySelector('#edSave').textContent + ' | nome: ' + getComputedStyle(document.querySelector('#edSaveName')).display");
   await shot(win, '04-editor-modifica');
   await js("document.querySelector('#edDelete').click()");
   await sleep(400);
@@ -190,6 +195,9 @@ async function runMain(win, js, waitFor, result) {
   await js("document.querySelector('#cfCancel').click()");
   await sleep(300);
   result.stillEditingAfterCancel = await js("document.body.classList.contains('editing')");
+  await js("document.querySelector('#edGoto').click()");
+  await sleep(1200);
+  result.editAfterGoto = await js("document.querySelector('#edSave').textContent + ' | ' + document.querySelector('#edHint').textContent");
   await js("window.ptz.cmd('move', -0.5, 0)");
   await sleep(200);
   await js("window.ptz.cmd('move', 0, 0)");

@@ -202,7 +202,11 @@ class Hub extends EventEmitter {
     const cam = this.camera();
     this._supersede();
     this.emit('manual');
-    if (typeof cam.stepMove === 'function') { cam.stepMove(d[0], d[1]); return; }
+    if (typeof cam.stepMove === 'function') {
+      const r = cam.stepMove(d[0], d[1]); // USB: prima rilegge la posizione vera (asincrono)
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+      return;
+    }
     clearTimeout(this.pulseTimer);
     this.pulseOn = true;
     cam.move(d[0] * 0.01, d[1] * 0.01);

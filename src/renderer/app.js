@@ -350,6 +350,7 @@ for (const b of $$('.hold')) {
 function goHome() {
   activeId = null;
   renderPresets();
+  editorMoved();
   ptz.cmd('home');
 }
 $('#btnOnePush').addEventListener('click', () => ptz.cmd('onePush'));
@@ -702,6 +703,15 @@ function watchThumb(id) {
 // un comando manuale: l'immagine non è più quella dell'inquadratura salvata
 function markManual() {
   if (thumbWatch) thumbWatch.manual = true;
+  editorMoved();
+}
+
+// nell'editor di un'inquadratura esistente la camera resta ferma finché non la si muove:
+// da quel momento «Salva nome e posizione» salva l'inquadratura com'è ora
+function editorMoved() {
+  if (!editor || editor.mode !== 'edit' || editor.moved) return;
+  editor.moved = true;
+  renderEditor();
 }
 
 function tickThumb() {
@@ -841,6 +851,7 @@ async function recall(p, opts) {
     if (!r || !r.id) return; // superato da STOP o da un altro comando
     activeId = p.id;
     if (!editor) watchThumb(p.id);
+    else editorMoved();
     if (p.pos && p.pos.focusAuto !== undefined) setAfUi(p.pos.focusAuto !== false);
   } catch (e) {
     toast(t('presets.recallError', { name: p.name, error: errMsg(e) }), 'err');
@@ -910,14 +921,21 @@ function renderEditor() {
   const p = editorPreset();
   const idx = p ? presets.indexOf(p) : -1;
   $('#edTitle').textContent = p ? t('ed.editTitle', { name: p.name }) : t('ed.new');
-  $('#edSave').textContent = p ? t('ed.saveChanges') : t('ed.save');
+  const moved = !!(p && editor && editor.moved);
+  // finché la camera non si muove si salva solo il nome: la posizione salvata resta com'è
+  $('#edSave').textContent = p ? t(moved ? 'ed.saveChanges' : 'ed.saveEdit') : t('ed.save');
+  $('#edSave').title = p && !moved ? t('ed.saveEditTitle') : '';
   $('#edExisting').style.display = p ? '' : 'none';
-  $('#edSaveName').style.display = p ? '' : 'none'; // solo il nome: la posizione salvata resta com'è
+  // il secondo tasto fa l'altra scelta: dopo il telecomando (che PTZ Hub non vede) si può
+  // salvare la posizione anche senza aver mosso la camera da qui
+  $('#edSaveName').style.display = p ? '' : 'none';
+  $('#edSaveName').textContent = t(moved ? 'ed.saveName' : 'ed.savePosToo');
+  $('#edSaveName').title = t(moved ? 'ed.saveNameTitle' : 'ed.savePosTooTitle');
   $('#edLeft').disabled = idx <= 0;
   $('#edRight').disabled = idx < 0 || idx >= presets.length - 1;
   const keyIdx = p ? idx : presets.length;
   $('#edKey').textContent = keyIdx >= 0 && keyIdx < 10 ? t('presets.key', { key: HOTKEYS[keyIdx] }) : '';
-  $('#edHint').textContent = p ? t('ed.hintEdit') : t('ed.hintNew');
+  $('#edHint').textContent = p ? t(moved ? 'ed.hintMoved' : 'ed.hintEdit') : t('ed.hintNew');
   $('#editNote').textContent = settings.presetMode === 'slot' ? t('ed.noteSlot') : t('ed.noteApp');
 }
 
@@ -927,7 +945,7 @@ async function openEditor(id = null) {
   if (id && !p) return;
   stopManualOnly();
   if (view.mode !== 'full') applyView(await ptz.setView('full'));
-  editor = { mode: p ? 'edit' : 'new', id: p ? p.id : null };
+  editor = { mode: p ? 'edit' : 'new', id: p ? p.id : null, moved: false };
   document.body.classList.add('editing');
   $('#edName').value = p ? p.name : t('presets.defaultName', { n: presets.length + 1 });
   renderEditor();
@@ -936,9 +954,16 @@ async function openEditor(id = null) {
   if (document.activeElement) document.activeElement.blur(); // le frecce muovono la camera
   if (camState.state !== 'connected') toast(t('ed.notConnected'), 'warn', 6000);
   // da qui i richiami esterni (OBS, Stream Deck, tasti) restano in attesa;
-  // il richiamo dell'editor stesso passa comunque
+  // il richiamo dell'editor stesso passa comunque.
+  // Aprendo un'inquadratura la camera NON si muove: si può cambiare nome, ordine o eliminarla
+  // senza toccare la diretta; «Porta la camera qui» la sposta per ritoccarla.
   ptz.setEditing(true);
-  if (p) await recall(p, { editor: true }); // si parte dalla posizione salvata, poi la si ritocca
+}
+
+async function editorGoto() {
+  const p = editorPreset();
+  if (!p) return;
+  await recall(p, { editor: true });
   if (!editor) ptz.setEditing(false); // editor chiuso mentre la camera arrivava
 }
 
@@ -952,10 +977,12 @@ async function closeEditor() {
   if (lastFrame) draw(lastFrame);
 }
 
-async function saveEditor() {
+async function saveEditor(withPosition = false) {
   if (!editor) return;
   const btn = $('#edSave');
   const existing = editorPreset();
+  // la camera non si è mossa: si salva solo il nome (la posizione salvata resta com'è)
+  if (existing && !editor.moved && !withPosition) { await saveNameOnly(); return; }
   btn.disabled = true;
   let captured;
   try {
@@ -1017,9 +1044,10 @@ function moveEdited(delta) {
 }
 
 $('#btnSavePreset').addEventListener('click', () => openEditor());
-$('#edSave').addEventListener('click', saveEditor);
+$('#edSave').addEventListener('click', () => saveEditor());
 $('#edCancel').addEventListener('click', () => closeEditor());
-$('#edSaveName').addEventListener('click', saveNameOnly);
+$('#edSaveName').addEventListener('click', () => (editor && editor.moved ? saveNameOnly() : saveEditor(true)));
+$('#edGoto').addEventListener('click', editorGoto);
 $('#edLeft').addEventListener('click', () => moveEdited(-1));
 $('#edRight').addEventListener('click', () => moveEdited(1));
 $('#edName').addEventListener('keydown', (e) => {

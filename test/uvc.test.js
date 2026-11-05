@@ -402,6 +402,47 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   await cam.disconnect();
   ok('centro operativo: richiamo, STOP, joystick, impulsi e Home con la camera USB');
 
+  // 16. camera mossa col telecomando (o da OBS) senza passare da PTZ Hub: il passo e il
+  //     movimento partono dalla posizione vera, non da quella ricordata; l'asse fermo parte
+  //     insieme al suo valore vero (in UVC pan e tilt sono un solo controllo)
+  {
+    const { cam, link } = await makeCam({}, { timing: { ...TIMING, resyncAfterMs: 50 } });
+    await sleep(80);
+    link.track.cur.pan = 60; // telecomando: la testa è andata a destra e in basso
+    link.track.cur.tilt = -20;
+    link.applied = [];
+    await cam.stepMove(1, 0);
+    await cam._idle();
+    assert.deepStrictEqual(link.applied[0], { pan: 61, tilt: -20 }, `passo dalla posizione vera, tilt fermo: ${JSON.stringify(link.applied)}`);
+    assert.strictEqual(link.cur.tilt, -20, 'il tilt non si sposta');
+    // un altro passo subito dopo: valgono i valori appena mandati, senza rileggere
+    await cam.stepMove(1, 0);
+    await cam._idle();
+    assert.deepStrictEqual(link.applied[1], { pan: 62 }, 'secondo passo: solo il pan');
+    // di nuovo il telecomando, poi movimento continuo verso sinistra
+    await sleep(80);
+    link.track.cur.pan = -40;
+    link.track.cur.tilt = 10;
+    link.applied = [];
+    cam.move(-0.5, 0);
+    await sleep(60);
+    cam.move(0, 0);
+    await cam._idle();
+    const first = link.applied[0];
+    assert.ok(first && first.pan <= -40 && first.pan > -60 && first.tilt === 10, `il movimento parte da -40 col tilt vero: ${JSON.stringify(link.applied)}`);
+    assert.ok(link.applied.every((v) => v.tilt === undefined || v.tilt === 10), 'il tilt resta fermo');
+    // STOP durante la rilettura: il passo non parte
+    await sleep(80);
+    link.applied = [];
+    const pending = cam.stepMove(0, 1);
+    cam.stopAll();
+    await pending;
+    await cam._idle();
+    assert.strictEqual(link.applied.length, 0, 'STOP prima della rilettura: nessun passo');
+    cam.close && cam.close();
+    ok('camera mossa col telecomando: si riparte dalla posizione vera, l\'altro asse non salta');
+  }
+
   console.log(`uvc: ${pass} prove superate`);
 })().catch((e) => {
   console.error(e);

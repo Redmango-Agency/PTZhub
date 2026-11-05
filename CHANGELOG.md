@@ -4,6 +4,12 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 
 ## [Non ancora pubblicata]
 
+## [1.5.1] — 2026-11-05
+
+### Corretto
+- **Camera USB mossa col telecomando (o da OBS)**: le frecce partivano dall'ultima posizione conosciuta da PTZ Hub, quindi un clic su «Lento» poteva far saltare la camera di molto, e la freccia a destra poteva spostarla anche in su. Ora prima di muoverla PTZ Hub rilegge dove si trova davvero, e l'asse fermo resta fermo: su Windows pan e tilt partono insieme in un solo comando quando la camera lo permette.
+- **Modificare un'inquadratura non muove più la camera**: aprendo la modifica si possono cambiare nome e ordine o eliminarla senza toccare la diretta. «Porta la camera qui» la sposta sulla posizione salvata per ritoccarla; «Salva nome e posizione» compare solo dopo che la camera si è mossa.
+
 ## [1.5.0] — 2026-11-05
 
 ### Aggiunto
@@ -70,6 +76,7 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 - Ricerca automatica della telecamera e del flusso video, installer per Windows.
 
 [Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.5.0...HEAD
+[1.5.1]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.1
 [1.5.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.0
 [1.4.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.3.0

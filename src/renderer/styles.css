@@ -229,13 +229,15 @@ body.editing #viewSeg, body.editing #sideSeg, body.editing #btnPin, body.editing
 .key-badge { border: 1px solid var(--line); border-radius: 7px; padding: 2px 8px; font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; }
 .key-badge:empty { display: none; }
 .editor-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.ed-name { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--muted); width: 320px; max-width: 100%; }
+.ed-name { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--muted); width: 260px; max-width: 100%; }
 .ed-name input {
   height: 44px; border-radius: 12px; border: 1px solid var(--field-line); padding: 0 14px; font-size: 15px; color: var(--text);
   background: var(--surface); user-select: text;
 }
 .ed-name input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px rgba(0, 113, 227, .12); }
-.ed-tools { display: flex; gap: 8px; }
+.ed-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+/* i tasti per salvare restano insieme, a destra, anche quando la riga va a capo */
+.ed-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 .ed-tools .btn-ctl { font-size: 13.5px; padding: 0 14px; }
 
 /* ---------------------------------------------------------------- vista compatta */

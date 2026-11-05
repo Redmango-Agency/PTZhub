@@ -28,6 +28,7 @@ const TIMING = {
   confirmMs: 12000, // per quanto al massimo (le camere lente impiegano qualche secondo)
   maxResend: 4, // quante volte si rimanda la posizione se la camera si è fermata altrove
   retryMs: 3000, // camera scollegata o occupata: si riprova ogni 3 s
+  resyncAfterMs: 1500, // comando manuale dopo 1,5 s senza comandi nostri: prima si rilegge la posizione vera
 };
 
 const AXES = ['pan', 'tilt', 'zoom'];
@@ -75,6 +76,10 @@ class UvcCamera extends EventEmitter {
     this.gen = 0; // cambia con STOP, Home e i comandi manuali: un richiamo in corso si ferma
     this.focusAuto = true;
     this.absMoving = false; // richiamo o Home in corso (comando assoluto in attesa di conferma)
+    this.lastSendAt = 0; // ultimo valore mandato alla camera
+    this.syncedAt = 0; // ultima rilettura della posizione vera
+    this.resyncing = null; // rilettura in corso (promessa)
+    this.ptSync = false; // il prossimo pan o tilt parte insieme all'altro asse
     this.retryTimer = null;
     this.lastErrorLog = 0;
     this._onEnded = () => this._lost(t('uvc.unplugged'));
@@ -198,6 +203,7 @@ class UvcCamera extends EventEmitter {
     if (!this.ready) return;
     this.queue = { ...(this.queue || {}), ...values };
     for (const k of Object.keys(values)) if (k !== 'focusMode') this.last[k] = values[k];
+    this.lastSendAt = Date.now();
     if (!this.busy) this._pump();
   }
 
@@ -258,7 +264,8 @@ class UvcCamera extends EventEmitter {
       this.loopTimer = null;
       return;
     }
-    if (this.loopTimer) return;
+    if (this.loopTimer || this.resyncing) return;
+    if (this._needsResync()) { this._resync(); return; } // a rilettura finita si riparte da qui
     this.lastTick = Date.now();
     this.loopTimer = setInterval(() => this._tick(), this.tm.tickMs);
   }
@@ -293,11 +300,54 @@ class UvcCamera extends EventEmitter {
     step('tilt', this.vel.y);
     step('zoom', this.vel.z);
     step('focusDistance', this.vel.f);
-    if (Object.keys(out).length) this._send(out);
+    if (Object.keys(out).length) this._send(this._withPair(out));
   }
 
   // un comando manuale prende il posto di un richiamo o di Home in corso
   _interrupt() { this.gen += 1; }
+
+  // Prima di un comando manuale si rilegge dove si trova davvero la camera: col telecomando,
+  // con OBS o con un altro programma può essersi mossa senza passare da qui, e partire dai
+  // valori vecchi la farebbe saltare. Se gli ultimi comandi sono nostri e recenti valgono i
+  // nostri valori (la testa può essere ancora in viaggio verso quelli).
+  _needsResync() {
+    if (!this.ready || this.absMoving) return false;
+    return Date.now() - Math.max(this.lastSendAt, this.syncedAt) >= this.tm.resyncAfterMs;
+  }
+
+  _resync() {
+    if (this.resyncing) return this.resyncing;
+    const run = (async () => {
+      await this._idle();
+      let st = null;
+      try { st = await this.link.settings(); } catch (_) { st = null; }
+      this.syncedAt = Date.now();
+      if (!st || !this.ready) return;
+      for (const k of [...AXES, 'focusDistance']) {
+        const a = this.axes[k];
+        if (!a || !num(st[k])) continue;
+        this.pos[k] = clamp(st[k], a.min, a.max);
+        this.last[k] = quantize(a, this.pos[k]);
+      }
+      // in UVC pan e tilt sono un solo controllo: col primo comando si manda anche l'asse
+      // fermo al suo valore vero, così il driver non ne usa uno vecchio (la camera «salterebbe»)
+      this.ptSync = true;
+    })();
+    this.resyncing = run.finally(() => {
+      this.resyncing = null;
+      this._kick();
+    });
+    return this.resyncing;
+  }
+
+  // aggiunge l'asse fermo (pan o tilt) al suo valore vero, solo subito dopo una rilettura
+  _withPair(out) {
+    if (!this.ptSync || !('pan' in out || 'tilt' in out)) return out;
+    this.ptSync = false;
+    const other = 'pan' in out ? ('tilt' in out ? null : 'tilt') : 'pan';
+    if (other && this.axes[other] && num(this.last[other])) return { ...out, [other]: this.last[other] };
+    return out;
+  }
 
   // x, y in [-1, 1]. x>0 = destra, y>0 = su (UVC: pan positivo = orario visto dall'alto, tilt positivo = su)
   move(x, y) {
@@ -310,13 +360,16 @@ class UvcCamera extends EventEmitter {
   }
 
   // Passo piccolo (freccia premuta e rilasciata): il minimo spostamento della camera,
-  // un passo della sua griglia (almeno 1/1000 della corsa)
-  stepMove(dx, dy) {
+  // un passo della sua griglia (almeno 1/1000 della corsa), partendo dalla posizione vera
+  async stepMove(dx, dy) {
     if (!this.ready) return;
     if (this.opts.invertPan) dx = -dx;
     if (this.opts.invertTilt) dy = -dy;
     this._stopMotion();
     this._interrupt();
+    const g = this.gen;
+    if (this.resyncing || this._needsResync()) await this._resync();
+    if (g !== this.gen || !this.ready) return; // nel frattempo è arrivato un altro comando
     const out = {};
     for (const [k, v] of [['pan', dx], ['tilt', dy]]) {
       const a = this.axes[k];
@@ -326,7 +379,7 @@ class UvcCamera extends EventEmitter {
       const q = quantize(a, base + Math.sign(v) * inc);
       if (q !== base) { out[k] = q; this.pos[k] = q; }
     }
-    if (Object.keys(out).length) this._send(out);
+    if (Object.keys(out).length) this._send(this._withPair(out));
   }
 
   // z in [-1, 1]: >0 stretto (tele), <0 largo

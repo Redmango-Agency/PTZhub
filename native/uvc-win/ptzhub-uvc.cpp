@@ -8,6 +8,8 @@
 //                                      -> {"id":n,"ok":true,"value":{"label","path","caps","settings"}}
 //   <id>\tset\tpan=1\ttilt=2\tzoom=3\tfocusDistance=4\tfocusMode=manual|continuous
 //                                      -> {"id":n,"ok":true,"value":{settings}}
+//      pan e tilt nella stessa richiesta partono insieme (un solo comando UVC) se la camera
+//      accetta KSPROPERTY_CAMERACONTROL_PANTILT; altrimenti uno dopo l'altro
 //   <id>\tget                          -> {"id":n,"ok":true,"value":{settings}}
 //   <id>\tclose                        -> {"id":n,"ok":true,"value":null}
 // Errori: {"id":n,"ok":false,"name":"NotFoundError|NotReadableError|Error","message":"..."}
@@ -17,7 +19,10 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dshow.h>
+#include <ks.h>
+#include <ksmedia.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +31,17 @@
 #include <vector>
 
 namespace {
+
+// GUID scritti qui per non dipendere dalle librerie di mingw che li definiscono
+const GUID kPropsetCameraControl = {0xC6E13370, 0x30AC, 0x11d0, {0xA1, 0x8C, 0x00, 0xA0, 0xC9, 0x11, 0x89, 0x56}};
+const IID kIidKsControl = {0x28F54685, 0x06FD, 0x11D2, {0xB2, 0x7A, 0x00, 0xA0, 0xC9, 0x22, 0x31, 0x96}};
+
+// IKsControl (ks.h di mingw lo dichiara solo in certe combinazioni di header): stessa tabella
+struct KsControl : public IUnknown {
+  virtual HRESULT STDMETHODCALLTYPE KsProperty(PKSPROPERTY p, ULONG pl, PVOID d, ULONG dl, ULONG* r) = 0;
+  virtual HRESULT STDMETHODCALLTYPE KsMethod(PKSMETHOD m, ULONG ml, PVOID d, ULONG dl, ULONG* r) = 0;
+  virtual HRESULT STDMETHODCALLTYPE KsEvent(PKSEVENT e, ULONG el, PVOID d, ULONG dl, ULONG* r) = 0;
+};
 
 std::string utf8(const wchar_t* w) {
   if (!w) return "";
@@ -220,9 +236,12 @@ class Camera {
 
   void close() {
     if (cc_) cc_->Release();
+    if (ks_) ks_->Release();
     if (filter_) filter_->Release();
     cc_ = nullptr;
+    ks_ = nullptr;
     filter_ = nullptr;
+    ptScale_ = 0;
     name_.clear();
     path_.clear();
   }
@@ -257,12 +276,69 @@ class Camera {
     if (SUCCEEDED(hr)) {
       // senza IAMCameraControl la camera non ha comandi via USB: si risponde con capacità vuote
       if (FAILED(filter_->QueryInterface(IID_IAMCameraControl, reinterpret_cast<void**>(&cc_)))) cc_ = nullptr;
+      if (FAILED(filter_->QueryInterface(kIidKsControl, reinterpret_cast<void**>(&ks_)))) ks_ = nullptr;
       name_ = pick->name;
       path_ = pick->path;
+      probePanTilt();
     }
     releaseAll(list);
     return hr;
   }
+
+  // In UVC pan e tilt sono UN controllo: con IAMCameraControl si imposta un asse alla volta e
+  // il driver completa l'altro con un valore suo, che può essere vecchio (la camera mossa col
+  // telecomando «salta»). KSPROPERTY_CAMERACONTROL_PANTILT li manda insieme, in secondi d'arco.
+  // Si usa solo se la lettura combinata torna con quella dei due assi separati (stessa scala).
+  void probePanTilt() {
+    ptScale_ = 0;
+    if (!ks_ || !cc_) return;
+    long gp = 0, gt = 0, f = 0, p = 0, t = 0;
+    if (FAILED(cc_->Get(CameraControl_Pan, &gp, &f)) || FAILED(cc_->Get(CameraControl_Tilt, &gt, &f))) return;
+    if (!getPanTilt(&p, &t)) return;
+    auto fits = [&](long scale, long tol) { return std::labs(p - gp * scale) <= tol && std::labs(t - gt * scale) <= tol; };
+    const bool deg = fits(3600, 1800);  // assi separati in gradi, combinato in secondi d'arco
+    const bool same = fits(1, 1);       // stessa unità
+    if (deg && !same) ptScale_ = 3600;
+    else if (same && !deg) ptScale_ = 1;
+    else if (deg && same) {
+      // tutto a zero: decide la corsa (in gradi non supera i 360)
+      long mn = 0, mx = 0, st = 0, df = 0, fl = 0;
+      if (SUCCEEDED(cc_->GetRange(CameraControl_Pan, &mn, &mx, &st, &df, &fl))) ptScale_ = (std::labs(mn) <= 360 && std::labs(mx) <= 360) ? 3600 : 1;
+    }
+  }
+
+  bool getPanTilt(long* p, long* t) {
+    KSPROPERTY_CAMERACONTROL_S2 s = {};
+    s.Property.Set = kPropsetCameraControl;
+    s.Property.Id = KSPROPERTY_CAMERACONTROL_PANTILT;
+    s.Property.Flags = KSPROPERTY_TYPE_GET;
+    ULONG ret = 0;
+    if (!ks_ || FAILED(ks_->KsProperty(&s.Property, sizeof(s), &s, sizeof(s), &ret))) return false;
+    *p = s.Value1;
+    *t = s.Value2;
+    return true;
+  }
+
+  // pan e tilt insieme; false = non disponibile (si usano i due assi separati)
+  bool setPanTilt(double pan, double tilt) {
+    if (!ptScale_ || !ks_) return false;
+    const double lim = 180.0 * 3600.0;
+    KSPROPERTY_CAMERACONTROL_S2 s = {};
+    s.Property.Set = kPropsetCameraControl;
+    s.Property.Id = KSPROPERTY_CAMERACONTROL_PANTILT;
+    s.Property.Flags = KSPROPERTY_TYPE_SET;
+    s.Value1 = static_cast<LONG>(std::lround(std::max(-lim, std::min(lim, pan * ptScale_))));
+    s.Value2 = static_cast<LONG>(std::lround(std::max(-lim, std::min(lim, tilt * ptScale_))));
+    s.Flags = KSPROPERTY_CAMERACONTROL_FLAGS_MANUAL | KSPROPERTY_CAMERACONTROL_FLAGS_ABSOLUTE;
+    ULONG ret = 0;
+    if (FAILED(ks_->KsProperty(&s.Property, sizeof(s), &s, sizeof(s), &ret))) {
+      ptScale_ = 0;  // rifiutato: da qui si va asse per asse
+      return false;
+    }
+    return true;
+  }
+
+  bool panTilt() const { return ptScale_ != 0; }
 
   bool isOpen() const { return filter_ != nullptr; }
   IAMCameraControl* cc() const { return cc_; }
@@ -272,6 +348,8 @@ class Camera {
  private:
   IBaseFilter* filter_ = nullptr;
   IAMCameraControl* cc_ = nullptr;
+  KsControl* ks_ = nullptr;
+  long ptScale_ = 0;  // PANTILT: 3600 se gli assi separati sono in gradi, 1 se già in secondi d'arco, 0 = no
   std::string name_;
   std::string path_;
 };
@@ -335,7 +413,8 @@ int main() {
         continue;
       }
       reply(id, "{\"label\":" + jsonStr(cam.name()) + ",\"path\":" + jsonStr(cam.path()) +
-                    ",\"caps\":" + capsJson(cam.cc()) + ",\"settings\":" + settingsJson(cam.cc()) + "}");
+                    ",\"caps\":" + capsJson(cam.cc()) + ",\"settings\":" + settingsJson(cam.cc()) +
+                    ",\"pantilt\":" + (cam.panTilt() ? "true" : "false") + "}");
     } else if (cmd == "set" || cmd == "get") {
       if (!cam.isOpen()) {
         fail(id, "InvalidStateError", "nessuna camera USB aperta");
@@ -344,11 +423,22 @@ int main() {
       IAMCameraControl* cc = cam.cc();
       HRESULT bad = S_OK;
       if (cmd == "set" && cc) {
+        // pan e tilt nella stessa richiesta: un solo comando, se la camera lo accetta
+        double pv = NAN, tv = NAN;
+        for (size_t i = 2; i < p.size(); i++) {
+          const size_t eq = p[i].find('=');
+          if (eq == std::string::npos) continue;
+          const std::string k = p[i].substr(0, eq);
+          if (k == "pan") pv = strtod(p[i].substr(eq + 1).c_str(), nullptr);
+          if (k == "tilt") tv = strtod(p[i].substr(eq + 1).c_str(), nullptr);
+        }
+        const bool together = std::isfinite(pv) && std::isfinite(tv) && cam.setPanTilt(pv, tv);
         for (size_t i = 2; i < p.size(); i++) {
           const size_t eq = p[i].find('=');
           if (eq == std::string::npos) continue;
           const std::string k = p[i].substr(0, eq);
           const std::string v = p[i].substr(eq + 1);
+          if (together && (k == "pan" || k == "tilt")) continue;
           HRESULT hr = S_OK;
           if (k == "focusMode") {
             long cur = 0, f = 0;
