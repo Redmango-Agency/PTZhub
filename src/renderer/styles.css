@@ -22,6 +22,17 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
 
 /* ---------------------------------------------------------------- Regia */
 .regia { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* finestra bassa: se i comandi non ci stanno nemmeno stretti, la colonna dei comandi scende
+   accanto alle inquadrature (fitControls in app.js); così non scorrono mai */
+.regia.ctl-tall {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto;
+  column-gap: 20px; padding: 0 24px;
+}
+.regia.ctl-tall > .top { grid-column: 1 / -1; padding-left: 0; padding-right: 0; }
+.regia.ctl-tall > .layout { display: contents; }
+.regia.ctl-tall .stage { grid-column: 1; grid-row: 2; }
+.regia.ctl-tall .controls { grid-column: 2; grid-row: 2 / 4; margin-bottom: 20px; }
+.regia.ctl-tall > .presets, body.editing .regia.ctl-tall > .editor { grid-column: 1; grid-row: 3; margin-left: 0; margin-right: 0; }
 .top {
   display: flex; align-items: center; gap: 12px; padding: 4px 24px 14px; flex: none; min-width: 0;
 }
@@ -58,6 +69,8 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
   margin: 0 24px 14px; display: flex; align-items: center; gap: 14px; flex: none;
   background: #FFF4F2; border: 1px solid #FFD5CF; border-radius: 16px; padding: 12px 16px;
 }
+/* «camera non raggiungibile»: sopra l'anteprima, così non spinge giù i comandi */
+.video-wrap > .alert { position: absolute; top: 12px; left: 12px; right: 12px; margin: 0; z-index: 6; box-shadow: 0 6px 20px rgba(0, 0, 0, .14); }
 .alert-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .alert-text b { font-size: 14px; font-weight: 600; }
 .alert-text span { font-size: 13px; color: var(--muted); }
@@ -118,14 +131,14 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
 .ring-pad {
   position: absolute; inset: 0; border-radius: 50%; overflow: hidden; transform: rotate(45deg);
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 5px; background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 2px 10px rgba(0, 0, 0, .06);
+  gap: 5px; background: var(--surface); box-shadow: 0 0 0 1px #D9D9DE, 0 2px 10px rgba(0, 0, 0, .08);
 }
 .wedge {
-  border: 0; padding: 0; background: #EEEEF3; color: var(--text); display: grid; place-items: center;
+  border: 0; padding: 0; background: #E6E6EC; color: var(--text); display: grid; place-items: center;
   touch-action: none; cursor: pointer; transition: background .12s, color .12s;
 }
 .wedge svg { width: calc(var(--ring) * .145); height: calc(var(--ring) * .145); transform: rotate(-45deg); }
-.wedge:hover { background: #E5E5EB; }
+.wedge:hover { background: #DCDCE3; }
 .wedge.pressed { background: var(--blue-soft); color: var(--blue-ink); }
 .wedge:focus-visible { outline: 0; box-shadow: inset 0 0 0 3px var(--blue); }
 body.editing .wedge:not(.pressed) { background: #E9F0FA; }
@@ -141,6 +154,13 @@ body.editing .wedge:not(.pressed) { background: #E9F0FA; }
 .ring-home:active { transform: translateY(1px); }
 .dp-hint { margin: -4px 0 0; text-align: center; font-size: 12.5px; color: #424245; }
 .move .btn-stop { height: 48px; font-size: 15px; font-weight: 700; letter-spacing: .05em; }
+/* finestra bassa: i comandi non scorrono mai, si stringono (vedi fitControls in app.js) */
+.controls.tight { gap: 8px; }
+.controls.tight .ctl-card { padding: 9px 14px 11px; gap: 7px; }
+.controls.tight .dp-hint, .controls.tight .ring-home span, .controls.tight .divider { display: none; }
+.controls.tight .move .btn-stop { height: 34px; }
+.controls.tight .btn-ctl { height: 32px; }
+.controls.tight .btn-ctl.small { height: 30px; }
 .zoom-btn { gap: 9px; font-weight: 600; }
 .zoom-btn b { font-size: 21px; font-weight: 500; line-height: 1; }
 .triple.focus-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
@@ -522,6 +542,7 @@ kbd {
 }
 .toast .ti { display: flex; flex: none; }
 @keyframes toastIn { from { transform: translateY(6px); opacity: 0; } }
+body.offline .toasts { top: 196px; } /* sotto l'avviso «non risponde», sopra l'anteprima */
 body.compact .toasts { top: 44px; left: 8px; right: 8px; transform: none; width: auto; align-items: stretch; }
 body.compact .toast { max-width: none; font-size: 12.5px; }
 body.settings-open .toasts, body.wizard-open .toasts { top: 52px; }
@@ -542,9 +563,6 @@ body.settings-open .toasts, body.wizard-open .toasts { top: 52px; }
   body.editing .editor { margin-top: 14px; margin-bottom: 16px; padding: 16px 20px 18px; gap: 12px; }
   .alert { padding: 9px 14px; margin-bottom: 12px; }
   .alert-text span { font-size: 12.5px; }
-}
-@media (max-height: 900px) {
-  body.offline .toasts { top: 168px; } /* sotto l'avviso «non risponde» */
 }
 @media (max-height: 760px) {
   .titlebar { height: 36px; }

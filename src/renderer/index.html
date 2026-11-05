@@ -52,19 +52,18 @@
       <button class="pill-btn" id="btnSettings" data-icon="gear"><span data-i18n="top.settings"></span></button>
     </header>
 
-    <div class="alert" id="offlineBanner" role="alert" hidden>
-      <span data-icon="alert"></span>
-      <span class="alert-text">
-        <b id="offTitle" data-i18n="off.title"></b>
-        <span id="offText" data-i18n="off.text"></span>
-      </span>
-      <button class="btn-secondary small" id="btnRetry" data-i18n="off.retry"></button>
-      <button class="btn-dark small" id="btnCamSettings" data-i18n="off.settings"></button>
-    </div>
-
     <main class="layout">
       <section class="stage" data-i18n-label="preview.label">
         <div class="video-wrap" id="videoWrap">
+          <div class="alert" id="offlineBanner" role="alert" hidden>
+            <span data-icon="alert"></span>
+            <span class="alert-text">
+              <b id="offTitle" data-i18n="off.title"></b>
+              <span id="offText" data-i18n="off.text"></span>
+            </span>
+            <button class="btn-secondary small" id="btnRetry" data-i18n="off.retry"></button>
+            <button class="btn-dark small" id="btnCamSettings" data-i18n="off.settings"></button>
+          </div>
           <canvas id="video"></canvas>
           <video id="usbVideo" autoplay muted playsinline></video>
           <div class="no-signal" id="previewMsg">

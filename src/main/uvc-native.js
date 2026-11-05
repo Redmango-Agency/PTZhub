@@ -65,14 +65,17 @@ class UvcNativeLink extends EventEmitter {
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (d) => this._onData(d));
     proc.stdin.on('error', () => {}); // aiuto già chiuso: lo segnala 'exit'
-    const gone = () => {
+    const gone = (code) => {
       if (this.proc !== proc) return;
       this.proc = null;
-      this._failAll(remoteError({ name: 'InvalidStateError', message: 'aiuto USB chiuso' }));
+      // chiuso da solo (non da noi): si dice con il codice d'uscita, utile per capire il guasto
+      const why = code === 'error' ? 'aiuto USB non avviato'
+        : (typeof code === 'number' ? `aiuto USB chiuso (codice ${code >>> 0})` : 'aiuto USB chiuso');
+      this._failAll(remoteError({ name: this.destroyed ? 'InvalidStateError' : 'HelperExit', message: why }));
       if (!this.destroyed) this.emit('gone');
     };
-    proc.on('error', gone);
-    proc.on('exit', gone);
+    proc.on('error', () => gone('error'));
+    proc.on('exit', (code) => gone(code));
     return proc;
   }
 

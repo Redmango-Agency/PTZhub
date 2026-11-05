@@ -357,6 +357,7 @@ async function runMain(win, js, waitFor, result) {
   result.offlineBanner = await js("!document.querySelector('#offlineBanner').hidden");
   result.offlinePill = await js("document.querySelector('#camStatus').className + ' | ' + document.querySelector('#camDetail').textContent");
   await shot(win, '19-camera-non-risponde');
+  result.controlsFitOffline = await js(CONTROLS_FIT); // l'avviso non deve far scorrere i comandi
   await js("document.querySelector('#btnRetry').click()");
   await sleep(500);
   result.retryState = await js("document.querySelector('#btnRetry').textContent");

@@ -258,6 +258,36 @@ let dpadHold = null; // { btn, dir, timer, moving }
 const holdSpeed = (shift = false) => SPEED.move[settings.moveFast && !shift ? 'fast' : 'slow'];
 const zoomSpeed = (shift = false) => SPEED.zoom[settings.zoomFast && !shift ? 'fast' : 'slow'];
 
+// I comandi non devono scorrere. Se nella colonna non ci stanno: 1) il cerchio si rimpicciolisce
+// (fino a 112 px); 2) la colonna scende accanto alle inquadrature; 3) i tasti si stringono.
+let fitFrame = 0;
+function fitControls() {
+  cancelAnimationFrame(fitFrame);
+  fitFrame = requestAnimationFrame(() => {
+    const regia = $('#regia');
+    const box = document.querySelector('.controls');
+    const ring = $('#dpad');
+    if (!regia || !box || !ring || !box.clientHeight) return;
+    const over = () => box.scrollHeight - box.clientHeight;
+    const shrink = (min) => {
+      ring.style.removeProperty('--ring');
+      if (over() <= 0) return true;
+      const size = ring.getBoundingClientRect().width;
+      ring.style.setProperty('--ring', `${Math.max(min, Math.floor(size - over()))}px`);
+      return over() <= 0;
+    };
+    regia.classList.remove('ctl-tall');
+    box.classList.remove('tight');
+    if (shrink(112)) return;
+    regia.classList.add('ctl-tall');
+    if (shrink(112)) return;
+    box.classList.add('tight');
+    shrink(96);
+  });
+}
+window.addEventListener('resize', fitControls);
+if (window.ResizeObserver) new ResizeObserver(fitControls).observe(document.querySelector('.controls'));
+
 function renderSpeeds() {
   segSet($('#moveSpeedSeg'), settings.moveFast ? 'fast' : 'slow');
   segSet($('#zoomSpeedSeg'), settings.zoomFast ? 'fast' : 'slow');

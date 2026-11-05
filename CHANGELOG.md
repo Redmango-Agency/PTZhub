@@ -4,10 +4,17 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 
 ## [Non ancora pubblicata]
 
+## [1.5.2] — 2026-11-05
+
+### Corretto
+- **Camera USB non rilevata su Windows con la 1.5.1**: torna il modo di aprire la camera della 1.5.0 (senza il comando unico per pan e tilt, che su alcune camere bloccava il collegamento). Restano le correzioni della 1.5.1: prima di muoverla si rilegge la posizione vera e l'asse fermo non salta. Se la camera USB non si collega, un avviso dice la causa precisa (codice di Windows).
+- **I comandi non scorrono più**: l'avviso «la telecamera non risponde» sta sopra l'anteprima invece di spingere giù i comandi; nelle finestre basse il cerchio si rimpicciolisce e, se serve, la colonna dei comandi scende accanto alle inquadrature.
+- Tasti del cerchio un po' più scuri, visibili anche su schermi poco contrastati.
+
 ## [1.5.1] — 2026-11-05
 
 ### Corretto
-- **Camera USB mossa col telecomando (o da OBS)**: le frecce partivano dall'ultima posizione conosciuta da PTZ Hub, quindi un clic su «Lento» poteva far saltare la camera di molto, e la freccia a destra poteva spostarla anche in su. Ora prima di muoverla PTZ Hub rilegge dove si trova davvero, e l'asse fermo resta fermo: su Windows pan e tilt partono insieme in un solo comando quando la camera lo permette.
+- **Camera USB mossa col telecomando (o da OBS)**: le frecce partivano dall'ultima posizione conosciuta da PTZ Hub, quindi un clic su «Lento» poteva far saltare la camera di molto, e la freccia a destra poteva spostarla anche in su. Ora prima di muoverla PTZ Hub rilegge dove si trova davvero, e l'asse fermo resta fermo: (su Windows il comando unico per pan e tilt è stato tolto nella 1.5.2).
 - **Modificare un'inquadratura non muove più la camera**: aprendo la modifica si possono cambiare nome e ordine o eliminarla senza toccare la diretta. «Porta la camera qui» la sposta sulla posizione salvata per ritoccarla; «Salva nome e posizione» compare solo dopo che la camera si è mossa.
 
 ## [1.5.0] — 2026-11-05
@@ -76,6 +83,7 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 - Ricerca automatica della telecamera e del flusso video, installer per Windows.
 
 [Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.5.0...HEAD
+[1.5.2]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.2
 [1.5.1]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.1
 [1.5.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.0
 [1.4.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.4.0

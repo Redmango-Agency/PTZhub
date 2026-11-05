@@ -120,9 +120,16 @@ class UvcCamera extends EventEmitter {
       if (this.closed) return;
       const code = classifyError(e);
       this._setState('error', errorText(code, e), code);
+      // la causa precisa (codice di Windows, aiuto USB chiuso…) una volta sola, non a ogni tentativo
+      const detail = (e && e.message) || String(e);
+      if (detail !== this.lastConnectError) {
+        this.lastConnectError = detail;
+        this.emit('log', t('uvc.detail', { detail }));
+      }
       this._scheduleRetry();
       return;
     }
+    this.lastConnectError = '';
     this.connecting = false;
     if (this.closed) { this.link.close().catch(() => {}); return; }
     this.axes = analyzeCaps(r && r.caps);
