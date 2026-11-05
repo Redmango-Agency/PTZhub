@@ -4,12 +4,12 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 
 ## [Non ancora pubblicata]
 
-## [1.5.0] — 2026-10-31
+## [1.5.0] — 2026-11-05
 
 ### Aggiunto
 - **Cerchio con 4 frecce al posto del joystick**: premi = la camera si sposta di poco, per centrare l'inquadratura; tieni premuto = si muove. Home al centro del cerchio, STOP subito sotto. **Lento / Veloce** per il movimento e, a parte, per lo zoom (se la camera ha velocità variabili; altrimenti va alla sua). Le frecce della tastiera funzionano allo stesso modo, con Maiusc sempre lento. Zoom con «− Allarga» e «Avvicina +», fuoco rapido con «Metti a fuoco».
 - **Miniature che si aggiornano con l'uso**: quando la camera arriva su un'inquadratura e nessuno la sposta a mano, la miniatura prende l'ultima immagine dell'anteprima.
-- **Comando via cavo USB (UVC), in prova**: terzo protocollo accanto a VISCA e ONVIF per le camere collegate al PC solo con il cavo USB. Funziona solo se la camera accetta pan, tilt e zoom via USB: PTZ Hub lo verifica nel primo avvio («Camera collegata via USB?») e in Impostazioni › Telecamera e mostra l'esito (pan, tilt, zoom e fuoco manuale: sì/no).
+- **Comando via cavo USB (UVC)**: terzo protocollo accanto a VISCA e ONVIF per le camere collegate al PC solo con il cavo USB. Funziona solo se la camera accetta pan, tilt e zoom via USB: PTZ Hub lo verifica nel primo avvio («Camera collegata via USB?») e in Impostazioni › Telecamera e mostra l'esito (pan, tilt, zoom e fuoco manuale: sì/no).
 - Con la camera USB funzionano Regia, editor delle inquadrature, viste Compatta e Laterale, pannello OBS, indirizzi web, tasti globali e plugin Stream Deck: il movimento continuo è fatto di piccoli passi assoluti (25 al secondo), le inquadrature salvano la posizione esatta, Home porta al centro con lo zoom al minimo, STOP ferma subito anche un richiamo a metà strada.
 - Avvisi chiari per la camera USB: «non accetta movimenti via USB» (con il consiglio di usare il cavo di rete e VISCA/ONVIF), «solo zoom», «occupata» (su Windows di solito da OBS: chiudi lì la sorgente, comanda la camera via rete oppure, su Windows 11, consenti a più app di usare la fotocamera), «non risponde» quando il cavo si stacca, con nuovo collegamento automatico.
 
