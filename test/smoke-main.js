@@ -470,6 +470,7 @@ async function runWizardAuth(win, js, waitFor, result) {
   await sleep(500);
   await waitFor("!document.querySelector('#wzAuthTry').disabled && !document.querySelector('#wzAuthMsg').hidden", 20000);
   result.authWrongMsg = await js("document.querySelector('#wzAuthMsg').textContent");
+  result.authReply = await js("document.querySelector('#wzAuthReply').hidden ? '' : document.querySelector('#wzAuthReply').textContent");
   result.authHelpOpen = await js("document.querySelector('#wzAuthHelp').open");
   result.useDisabledWrong = await js("document.querySelector('#wzUse').disabled");
   await shot(win, 'a2-password-sbagliata');
@@ -486,6 +487,8 @@ async function runWizardAuth(win, js, waitFor, result) {
   await waitFor("document.querySelector('.wz-step[data-step=\"2\"]').classList.contains('on')", 5000);
   await sleep(1500);
   result.savedCamera = await js("window.ptz.init().then((s) => `${s.settings.camera.protocol} ${s.settings.camera.port} ${s.settings.camera.user}/${s.settings.camera.pass}`)");
+  // modo di accesso ricordato (con la camera finta «dahua»: firma con l'ora del PC)
+  result.onvifAuth = await js("window.ptz.init().then((s) => JSON.stringify(s.settings.onvifAuth || {}))");
 }
 
 async function runWizard(win, js, waitFor, result) {

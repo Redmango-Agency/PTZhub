@@ -288,7 +288,10 @@ async function probeOnvif(host, { user = '', pass = '', ports = [80, 8000, 8080,
       }
     } catch (e) {
       r.error = e.message;
+      if (e.auth) { r.authFailed = !!user; r.authNeeded = true; r.reply = e.reply || ''; }
+      if (e.locked) r.locked = true;
     }
+    if (c.authMode) r.authMode = c.authMode;
     return r;
   }
   return { ok: false };

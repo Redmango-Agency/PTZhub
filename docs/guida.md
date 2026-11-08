@@ -42,9 +42,15 @@ Nella verifica compare **«La telecamera chiede utente e password»** con due ca
 **Se viene rifiutata**, i casi più comuni sono questi:
 
 - **ONVIF è spento nella telecamera** (succede spesso anche con la password giusta). Premi **Apri la pagina della telecamera**, entra con utente e password e attiva ONVIF nelle impostazioni di rete. I nomi cambiano un po' da modello a modello:
-  - **Dahua**: Impostazioni › Rete › Piattaforma di accesso (Access Platform) › ONVIF › Attiva. Se c'è «Autenticazione ONVIF», lasciala attiva e usa lo stesso utente.
+  - **Dahua**: Impostazioni › Rete › Piattaforma di accesso (Access Platform) › ONVIF › Attiva. Se c'è «Autenticazione ONVIF», lasciala attiva (vedi sotto per la password).
   - **Hikvision**: Configurazione › Rete › Impostazioni avanzate › Protocollo di integrazione (Integration Protocol) › attiva ONVIF, poi **aggiungi un utente ONVIF** (nome e password) e usa quello in PTZ Hub.
   - **Altre marche**: cerca «ONVIF» nelle impostazioni di rete o di sicurezza.
+- **Dalla pagina web entri, da PTZ Hub no** (succede spesso con le Dahua). Le cause sono quasi sempre due:
+  1. **L'utente ONVIF ha una password sua.** Sulle Dahua gli utenti ONVIF sono separati da quelli della pagina web: quando si cambia la password della pagina web, quella ONVIF resta la vecchia. Entra nella pagina della telecamera, vai in Impostazioni › Sistema › Account › **Utente ONVIF**, modifica «admin» e metti la stessa password della pagina web. Sulle Hikvision va creato un utente ONVIF a parte (vedi sopra).
+  2. **Data, ora o fuso orario sbagliati.** Con l'ora sbagliata (anche solo l'ora legale) alcune telecamere rifiutano la password giusta. In Impostazioni › Sistema › Generale › Data e ora scegli il fuso orario giusto e attiva la sincronizzazione automatica (NTP). Dalla versione 1.5.5 PTZ Hub prova già da solo a compensare l'ora sbagliata.
+
+  **Non serve togliere l'autenticazione ONVIF**: lasciala attiva, altrimenti chiunque sia nella stessa rete può muovere la telecamera.
+- **Utente bloccato**: dopo alcuni tentativi sbagliati molte telecamere bloccano l'utente per qualche minuto (di solito da 5 a 30). PTZ Hub lo segnala e fa pochi tentativi: aspetta, controlla la password e riprova.
 - **Telecamera nuova, mai configurata**: le Dahua e le Hikvision vanno prima «attivate» scegliendo una password, dalla loro pagina web o con l'app del produttore (Dahua ConfigTool, Hikvision SADP). Poi torna su PTZ Hub e usa quella password.
 - **Password dimenticata**: si reimposta sulla telecamera (tasto di reset o assistenza del produttore). PTZ Hub non può recuperarla.
 

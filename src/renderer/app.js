@@ -1164,7 +1164,8 @@ function analyzeDetection(r) {
   else if (r.onvif.ok && r.onvif.ptz && r.onvif.position) chosen = { protocol: 'onvif', port: r.onvif.port };
   else if (anyVisca) { chosen = { protocol: proto[anyVisca.mode], port: anyVisca.port }; needSlot = true; }
   else if (r.onvif.ok && r.onvif.ptz) { chosen = { protocol: 'onvif', port: r.onvif.port }; needSlot = true; }
-  const onvifAuth = !chosen && r.onvif.ok && r.onvif.error && /author|autoriz|401|password|credential/i.test(r.onvif.error);
+  const onvifAuth = !!(!chosen && r.onvif.ok && r.onvif.error && (r.onvif.authNeeded || /author|autoriz|401|password|credential/i.test(r.onvif.error)));
+  const onvifLocked = !!(onvifAuth && r.onvif.locked);
   const onvifNoPtz = !chosen && r.onvif.ok && !r.onvif.error && !r.onvif.ptz;
   const line = (html, cls = '') => `<div class="line ${cls}">${html}</div>`;
   const rows = [];
@@ -1181,7 +1182,11 @@ function analyzeDetection(r) {
   if (r.http.ok) rows.push(line(`${esc(t('d.web', { title: r.http.title || t('d.webPresent') }))}${r.http.server ? ` (${esc(r.http.server)})` : ''}`, 'bad'));
   if (chosen) rows.unshift(line(`<b>${esc(t('d.set', { protocol: PROTOCOL_LABEL[chosen.protocol], port: chosen.port }))}</b>${needSlot ? esc(t('d.setSlot')) : ''}`, 'ok'));
   return {
-    chosen, needSlot, onvifAuth, onvifNoPtz, anyReply: !!(r.onvif.ok || r.http.ok || anyVisca), rows,
+    chosen, needSlot, onvifAuth, onvifLocked, onvifNoPtz, anyReply: !!(r.onvif.ok || r.http.ok || anyVisca), rows,
+    onvifReply: r.onvif.reply || '',
+    // porta ONVIF da cui chiedere gli indirizzi video: non se la password è stata rifiutata
+    // (altri tentativi sbagliati possono far bloccare l'utente dalla camera)
+    onvifPort: chosen && chosen.protocol === 'onvif' ? chosen.port : (r.onvif.ok && !onvifAuth ? r.onvif.port : null),
   };
 }
 
@@ -1633,7 +1638,7 @@ async function detectProtocol() {
     } else if (a.onvifAuth) {
       // utente e password sono qui sotto in «Accesso»: ci si porta lì
       detectedProtocol = null;
-      setLine($('#detectIcon'), $('#detectText'), 'bad', t(c.pass ? 'd.onvifAuthWrong' : 'd.onvifAuth'));
+      setLine($('#detectIcon'), $('#detectText'), 'bad', t(a.onvifLocked ? 'w.authLocked' : c.pass ? 'd.onvifAuthWrong' : 'd.onvifAuth'));
       $('#sPass').scrollIntoView({ block: 'center', behavior: 'smooth' });
       setTimeout(() => (c.pass ? $('#sPass').select() : $('#sPass').focus()), 250);
     } else if (a.onvifNoPtz) {
@@ -2212,9 +2217,9 @@ async function wzCheck(host) {
     else if (!tried) wzAuthShow(null);
   } else if (a.onvifAuth) {
     // protetta da password: riquadro per inserirla qui (se era già stata provata, è sbagliata)
-    wzCheckLine($('#wzCheckCmd'), 'bad', t('w.cmdAuth'), t(tried ? 'w.authRefused' : 'w.authNeeded'));
+    wzCheckLine($('#wzCheckCmd'), 'bad', t('w.cmdAuth'), t(a.onvifLocked ? 'w.authLockedShort' : tried ? 'w.authRefused' : 'w.authNeeded'));
     wzCheckLine($('#wzCheckPos'), '', t('w.pos'), '—');
-    wzAuthShow(host, tried ? 'wrong' : 'ask', user);
+    wzAuthShow(host, a.onvifLocked ? 'locked' : tried ? 'wrong' : 'ask', user, a.onvifReply);
   } else {
     wzCheckLine($('#wzCheckCmd'), 'bad', a.onvifNoPtz ? t('w.noPtz') : t('w.cmd'), a.onvifNoPtz ? t('w.noPtzShort') : t('w.noReply'));
     wzCheckLine($('#wzCheckPos'), '', t('w.pos'), '—');
@@ -2222,8 +2227,7 @@ async function wzCheck(host) {
   }
   // flusso video: può richiedere fino a un minuto, intanto si può già andare avanti
   try {
-    const onvifPort = a.chosen && a.chosen.protocol === 'onvif' ? a.chosen.port : 80;
-    const list = await ptz.detectRtsp({ host, user, pass, onvifPort });
+    const list = await ptz.detectRtsp({ host, user, pass, onvifPort: a.onvifPort });
     if (token !== wz.token) return;
     const ok = list.find((x) => x.ok);
     wz.rtsp = ok ? { url: ok.url, display: ok.display } : { url: '', display: '' };
@@ -2242,8 +2246,9 @@ async function wzCheck(host) {
   }
 }
 
-// riquadro «utente e password»: state = ask | askVideo | wrong | ok, null = nascosto
-function wzAuthShow(host, state, user) {
+// riquadro «utente e password»: state = ask | askVideo | wrong | locked | ok, null = nascosto
+// reply: risposta della telecamera quando rifiuta (utile a chi deve dare assistenza)
+function wzAuthShow(host, state, user, reply) {
   const box = $('#wzAuth');
   if (!host) { box.hidden = true; return; }
   const wasHidden = box.hidden;
@@ -2255,15 +2260,19 @@ function wzAuthShow(host, state, user) {
   if (state === 'ok') $('#wzAuthHelp').open = false;
   if (wasHidden || !$('#wzUser').value) $('#wzUser').value = user || (wz.cred && wz.cred.user) || settings.camera.user || 'admin';
   const msg = $('#wzAuthMsg');
-  msg.hidden = state !== 'wrong' && state !== 'ok';
+  const refused = state === 'wrong' || state === 'locked';
+  msg.hidden = !refused && state !== 'ok';
   msg.classList.toggle('ok', state === 'ok');
-  msg.textContent = state === 'wrong' ? t('w.authWrong') : state === 'ok' ? t('w.authOk') : '';
+  msg.textContent = state === 'wrong' ? t('w.authWrong') : state === 'locked' ? t('w.authLocked') : state === 'ok' ? t('w.authOk') : '';
+  const rep = $('#wzAuthReply');
+  rep.hidden = !(refused && reply);
+  rep.textContent = refused && reply ? t('w.authReply', { reply }) : '';
   // rifiutata: i consigli si aprono da soli
-  if (state === 'wrong') $('#wzAuthHelp').open = true;
+  if (refused) $('#wzAuthHelp').open = true;
   $$('#wzAuth .wz-auth-row, #wzAuth .wz-auth-text').forEach((el) => { el.hidden = state === 'ok'; });
-  if (state === 'ask' || state === 'askVideo' || state === 'wrong') setTimeout(() => (state === 'wrong' ? $('#wzPass').select() : $('#wzPass').focus({ preventScroll: true })), 0);
+  if (state === 'ask' || state === 'askVideo' || refused) setTimeout(() => (refused ? $('#wzPass').select() : $('#wzPass').focus({ preventScroll: true })), 0);
   // il riquadro (o, ad accesso riuscito, il pulsante per andare avanti) deve essere in vista
-  setTimeout(() => (state === 'ok' ? $('#wzUse') : box).scrollIntoView({ block: state === 'wrong' ? 'end' : 'nearest', behavior: 'smooth' }), 60);
+  setTimeout(() => (state === 'ok' ? $('#wzUse') : box).scrollIntoView({ block: refused ? 'end' : 'nearest', behavior: 'smooth' }), 60);
 }
 
 function wzAuthTry() {

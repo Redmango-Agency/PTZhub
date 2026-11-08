@@ -448,6 +448,7 @@ body.wizard-open .wizard { display: flex; flex: 1; min-height: 0; }
 .pass-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; font-size: 11.5px; color: var(--link); padding: 4px 6px; cursor: pointer; }
 .wz-auth-msg { margin: 0; font-size: 12.5px; color: var(--red-ink); }
 .wz-auth-msg.ok { color: var(--green-ink); }
+.wz-auth-reply { margin: -4px 0 0; font-size: 11.5px; color: #6E6E73; user-select: text; }
 .wz-help { font-size: 12.5px; color: #424245; }
 .wz-help summary { cursor: pointer; color: var(--link); font-weight: 500; }
 .wz-help ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; line-height: 1.45; }

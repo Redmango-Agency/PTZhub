@@ -4,6 +4,15 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 
 ## [Non ancora pubblicata]
 
+## [1.5.5] — 2026-11-08
+
+### Corretto
+- **Telecamere Dahua (e simili) con autenticazione ONVIF attiva**: la password giusta, la stessa che apre la pagina web, poteva essere rifiutata («Sender not Authorized») per colpa dell'orologio della telecamera: l'ora che dichiara non è quella con cui controlla l'accesso (fuso orario o ora legale sbagliati). Ora PTZ Hub prova da solo, con pochi tentativi, i modi di accesso che funzionano anche in questi casi (ora del PC, ora locale della telecamera, Digest HTTP) e si ricorda quello buono per ogni telecamera, così ai collegamenti successivi entra al primo colpo. Non serve più togliere l'autenticazione ONVIF.
+- Con la password rifiutata PTZ Hub riprova da solo ogni 2 minuti invece che ogni 5 secondi, e non ripete i tentativi per cercare il video: molte telecamere bloccano l'utente dopo pochi errori. Se la telecamera ha bloccato l'utente, il messaggio lo dice e spiega di aspettare qualche minuto.
+
+### Aggiunto
+- Primo avvio, password rifiutata: compare la risposta esatta della telecamera (utile per l'assistenza) e due consigli nuovi: sulle Dahua l'utente ONVIF ha una password sua, che non cambia quando si cambia quella della pagina web (Impostazioni › Sistema › Account › Utente ONVIF); controllare data, ora e fuso orario della telecamera. Anche la guida spiega questi casi.
+
 ## [1.5.4] — 2026-11-08
 
 ### Aggiunto
@@ -103,7 +112,8 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 - Inquadrature con editor dedicato, salvate per ogni account Windows, con esportazione e importazione.
 - Ricerca automatica della telecamera e del flusso video, installer per Windows.
 
-[Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.5.0...HEAD
+[Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.5.5...HEAD
+[1.5.5]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.5
 [1.5.4]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.4
 [1.5.3]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.3
 [1.5.2]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.2

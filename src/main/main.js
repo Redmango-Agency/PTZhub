@@ -8,7 +8,7 @@ const {
 } = require('electron');
 const { Store, DEFAULT_PORTS, VIEW_MODES } = require('./store');
 const { ViscaCamera } = require('./visca');
-const { OnvifCamera } = require('./onvif');
+const { OnvifCamera, setAuthHints, onAuthHint } = require('./onvif');
 const { UvcCamera } = require('./uvc');
 const { UvcLink } = require('./uvc-link');
 const { UvcNativeLink, helperPath: uvcHelperPath, probeNative: uvcProbeNative } = require('./uvc-native');
@@ -968,6 +968,10 @@ app.whenReady().then(() => {
   const sharedDefaults = path.join(path.dirname(process.execPath), 'ptz-defaults.json');
   store = new Store(app.getPath('userData'), sharedDefaults, os.userInfo().username);
   I18N.setLang(I18N.resolve(store.settings.language, app.getLocale()));
+  // modo di accesso ONVIF che ha funzionato per ogni camera (Dahua con l'orologio sbagliato e simili):
+  // si ricorda per non ripetere tentativi sbagliati, che alcune camere puniscono bloccando l'utente
+  setAuthHints(store.settings.onvifAuth);
+  onAuthHint((all) => { try { store.saveSettings({ onvifAuth: all }); } catch (_) { /* non essenziale */ } });
   hub = new Hub({ store, getCamera: () => camera, getCamStatus: () => camStatus });
   hub.on('active', (id) => send('preset:active', id));
   hub.on('stopped', () => send('hotkey', { type: 'stop' }));

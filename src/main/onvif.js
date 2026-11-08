@@ -95,6 +95,35 @@ async function httpRequest(url, { method = 'GET', body, headers = {}, user, pass
   return { status: res.status, text, headers: res.headers };
 }
 
+// Modi di accesso ONVIF, nell'ordine in cui si provano finché non se ne trova uno buono.
+// Molte Dahua (e non solo) rifiutano la password giusta per colpa dell'orologio: l'ora che
+// dichiarano non è quella con cui controllano la firma (fuso orario o ora legale sbagliati).
+//  wsse        firma WS-Security con l'ora UTC dichiarata dalla camera (standard ONVIF)
+//  http        solo Digest HTTP, senza firma: non dipende dall'ora
+//  wsse-pc     firma con l'ora del PC
+//  wsse-local  firma con l'ora locale della camera letta come se fosse UTC
+const AUTH_MODES = ['wsse', 'http', 'wsse-pc', 'wsse-local'];
+const SAME_CLOCK_MS = 30000; // firme con ore così vicine sono doppioni: un tentativo in meno
+const RETRY_BURST_MS = 20000; // dopo un giro fallito, per un po' si fa un solo tentativo (blocco account)
+const authHints = new Map(); // "host:porta|utente" -> modo che ha funzionato
+let authHintListener = null;
+
+function setAuthHints(obj) {
+  authHints.clear();
+  for (const [k, v] of Object.entries(obj || {})) if (AUTH_MODES.includes(v)) authHints.set(k, v);
+}
+function onAuthHint(cb) { authHintListener = cb; }
+
+// utente bloccato dalla camera dopo troppi errori («User locked», «AccountLocked», «locked out»;
+// non «Clock skew» né «Blocked»)
+const isLocked = (faultText) => /(?:\b|user|account)lock(?:ed|out)\b|\blocked\b/i.test(faultText || '');
+
+// risposta della camera che vuol dire «accesso negato» (password, firma o orologio)
+function isAuthFailure(status, faultText) {
+  if (status === 401 || status === 403) return true;
+  return isLocked(faultText) || /NotAuthori[sz]ed|FailedAuthentication|InvalidSecurity|FailedCheck|MessageExpired|SecurityTokenUnavailable|Unauthori[sz]ed|not\s+authori[sz]ed|authenticat|AccessDenied/i.test(faultText || '');
+}
+
 function cancelledError() {
   const e = new Error('cancelled');
   e.code = 'CANCELLED';
@@ -107,7 +136,10 @@ class OnvifClient {
     this.port = port;
     this.user = user;
     this.pass = pass;
-    this.timeOffset = 0;
+    this.timeOffset = 0; // ora UTC dichiarata dalla camera - ora del PC
+    this.localOffset = null; // ora locale della camera (letta come UTC) - ora del PC
+    this.authMode = null; // modo di accesso che funziona con questa camera (vedi AUTH_MODES)
+    this.authFailedAt = 0;
     this.deviceUrl = `http://${host}:${port}/onvif/device_service`;
     this.mediaUrl = null;
     this.ptzUrl = null;
@@ -129,10 +161,10 @@ class OnvifClient {
     }
   }
 
-  security() {
+  security(offset = this.timeOffset) {
     if (!this.user) return '';
     const nonce = crypto.randomBytes(16);
-    const created = new Date(Date.now() + this.timeOffset).toISOString().replace(/\.\d+Z$/, 'Z');
+    const created = new Date(Date.now() + offset).toISOString().replace(/\.\d+Z$/, 'Z');
     const digest = crypto.createHash('sha1')
       .update(Buffer.concat([nonce, Buffer.from(created), Buffer.from(this.pass)]))
       .digest('base64');
@@ -144,8 +176,42 @@ class OnvifClient {
       + '</UsernameToken></Security>';
   }
 
-  async call(url, body, { auth = true, timeout = 3000 } = {}) {
-    const envelope = `<?xml version="1.0" encoding="UTF-8"?><s:Envelope ${NS}><s:Header>${auth ? this.security() : ''}</s:Header><s:Body>${body}</s:Body></s:Envelope>`;
+  hintKey() { return `${this.host}:${this.port}|${this.user}`; }
+
+  offsetFor(mode) {
+    if (mode === 'wsse') return this.timeOffset;
+    if (mode === 'wsse-pc') return 0;
+    if (mode === 'wsse-local') return this.localOffset;
+    return null;
+  }
+
+  // modi da provare: prima quello che ha già funzionato, poi gli altri senza doppioni
+  authModes() {
+    const hint = authHints.get(this.hintKey());
+    const list = [...new Set([...(hint ? [hint] : []), ...AUTH_MODES])];
+    const clocks = [];
+    return list.filter((m) => {
+      if (m === 'http') return true;
+      const off = this.offsetFor(m);
+      if (off == null || clocks.some((c) => Math.abs(c - off) < SAME_CLOCK_MS)) return false;
+      clocks.push(off);
+      return true;
+    });
+  }
+
+  _settle(mode) {
+    this.authMode = mode;
+    const key = this.hintKey();
+    if ((authHints.get(key) || 'wsse') === mode) return;
+    authHints.set(key, mode);
+    if (authHintListener) {
+      try { authHintListener(Object.fromEntries(authHints)); } catch (_) { /* non essenziale */ }
+    }
+  }
+
+  async _send(url, body, mode, timeout) {
+    const header = mode && mode !== 'http' ? this.security(this.offsetFor(mode)) : '';
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?><s:Envelope ${NS}><s:Header>${header}</s:Header><s:Body>${body}</s:Body></s:Envelope>`;
     const res = await httpRequest(url, {
       method: 'POST',
       body: envelope,
@@ -155,26 +221,58 @@ class OnvifClient {
       timeout,
     });
     if (res.status >= 400 || /<(?:\w+:)?Fault[\s>]/.test(res.text)) {
-      const reason = section(res.text, 'Text') || section(res.text, 'Reason') || `HTTP ${res.status}`;
-      const err = new Error(`ONVIF: ${reason.replace(/<[^>]+>/g, '').trim()}`);
+      const fault = section(res.text, 'Fault') || res.text;
+      const reason = (section(fault, 'Text') || section(fault, 'Reason') || '').replace(/<[^>]+>/g, '').trim() || `HTTP ${res.status}`;
+      const err = new Error(`ONVIF: ${reason}`);
       err.status = res.status;
+      err.reply = reason;
+      err.auth = isAuthFailure(res.status, fault);
+      err.locked = err.auth && isLocked(fault);
       throw err;
     }
     return res.text;
   }
 
+  // preAuth: comando che lo standard permette anche senza password (GetCapabilities). Se riesce
+  // al primo colpo non prova niente: la camera potrebbe non aver controllato la firma.
+  async call(url, body, { auth = true, timeout = 3000, preAuth = false } = {}) {
+    if (!auth || !this.user) return this._send(url, body, null, timeout);
+    if (this.authMode) return this._send(url, body, this.authMode, timeout);
+    const burst = Date.now() - this.authFailedAt < RETRY_BURST_MS;
+    const modes = burst ? this.authModes().slice(0, 1) : this.authModes();
+    let first = null;
+    for (const mode of modes) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const text = await this._send(url, body, mode, timeout);
+        if (!preAuth || first) this._settle(mode);
+        return text;
+      } catch (e) {
+        if (!e.auth || e.locked) throw e;
+        if (!first) first = e;
+      }
+    }
+    this.authFailedAt = Date.now();
+    throw first;
+  }
+
   async init() {
+    this.authMode = null; // a ogni collegamento si ricontrolla (password o orologio possono essere cambiati)
     try {
       const t = await this.call(this.deviceUrl, '<tds:GetSystemDateAndTime/>', { auth: false });
-      const utc = section(t, 'UTCDateTime');
-      if (utc) {
-        const n = (k) => parseInt(section(utc, k), 10);
-        const camMs = Date.UTC(n('Year'), n('Month') - 1, n('Day'), n('Hour'), n('Minute'), n('Second'));
-        if (!Number.isNaN(camMs)) this.timeOffset = camMs - Date.now();
-      }
+      const read = (name) => {
+        const x = section(t, name);
+        if (!x) return null;
+        const n = (k) => parseInt(section(x, k), 10);
+        const ms = Date.UTC(n('Year'), n('Month') - 1, n('Day'), n('Hour'), n('Minute'), n('Second'));
+        return Number.isNaN(ms) ? null : ms - Date.now();
+      };
+      const utc = read('UTCDateTime');
+      if (utc != null) this.timeOffset = utc;
+      this.localOffset = read('LocalDateTime');
     } catch (_) { /* non tutte le camere lo espongono senza autenticazione */ }
 
-    const caps = await this.call(this.deviceUrl, '<tds:GetCapabilities><tds:Category>All</tds:Category></tds:GetCapabilities>');
+    const caps = await this.call(this.deviceUrl, '<tds:GetCapabilities><tds:Category>All</tds:Category></tds:GetCapabilities>', { preAuth: true });
     const pick = (name) => {
       const s = section(caps, name);
       const x = s ? section(s, 'XAddr') : null;
@@ -224,6 +322,12 @@ class OnvifClient {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const AUTH_RETRY_MS = 120000;
+
+function authDetail(e) {
+  if (!e || !e.auth) return e && e.message;
+  return t(e.locked ? 'onvif.locked' : 'onvif.authRefused', { reply: e.reply || e.message });
+}
 
 class OnvifCamera extends EventEmitter {
   constructor(opts) {
@@ -249,15 +353,20 @@ class OnvifCamera extends EventEmitter {
     this.emit('status', { state, detail });
   }
 
+  // password rifiutata: si riprova di rado, perché molte camere bloccano l'utente dopo pochi errori
+  _retryLater(ms) {
+    clearTimeout(this.retryTimer);
+    if (!this.closed) this.retryTimer = setTimeout(() => { if (!this.closed) this.connect(); }, ms);
+  }
+
   async connect() {
     this._setState('connecting', `${this.opts.host}:${this.opts.port || 80}`);
     try {
       await this.c.init();
       this._setState('connected');
     } catch (e) {
-      this._setState('error', e.message);
-      clearTimeout(this.retryTimer);
-      if (!this.closed) this.retryTimer = setTimeout(() => { if (!this.closed) this.connect(); }, 5000);
+      this._setState('error', authDetail(e));
+      this._retryLater(e.auth ? AUTH_RETRY_MS : 5000);
       return;
     }
     clearInterval(this.healthTimer);
@@ -267,7 +376,9 @@ class OnvifCamera extends EventEmitter {
         await this.c.ptz(`<tptz:GetStatus>${this.c.pt()}</tptz:GetStatus>`);
         this._setState('connected');
       } catch (e) {
-        this._setState('error', e.message);
+        this._setState('error', authDetail(e));
+        // password cambiata nella camera: niente controlli ogni 4 secondi, si ricollega più tardi
+        if (e.auth) { clearInterval(this.healthTimer); this._retryLater(AUTH_RETRY_MS); }
       }
     }, 4000);
     // durante un movimento continuo il comando viene rinnovato prima che scada il Timeout
@@ -436,4 +547,6 @@ class OnvifCamera extends EventEmitter {
   }
 }
 
-module.exports = { OnvifCamera, OnvifClient, httpRequest, section, sections, attr };
+module.exports = {
+  OnvifCamera, OnvifClient, httpRequest, section, sections, attr, setAuthHints, onAuthHint, AUTH_MODES,
+};

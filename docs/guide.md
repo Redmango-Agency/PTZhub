@@ -42,9 +42,15 @@ The check shows **“The camera asks for a user name and password”** with two 
 **If it is refused**, these are the most common cases:
 
 - **ONVIF is switched off in the camera** (this often happens even with the right password). Press **Open the camera page**, sign in and enable ONVIF in the network settings. Names change a little between models:
-  - **Dahua**: Settings › Network › Access Platform › ONVIF › Enable. If there is “ONVIF authentication”, leave it on and use the same user.
+  - **Dahua**: Settings › Network › Access Platform › ONVIF › Enable. If there is “ONVIF authentication”, leave it on (see below for the password).
   - **Hikvision**: Configuration › Network › Advanced Settings › Integration Protocol › enable ONVIF, then **add an ONVIF user** (name and password) and use that one in PTZ Hub.
   - **Other makers**: look for “ONVIF” in the network or security settings.
+- **The web page lets you in, PTZ Hub doesn't** (it often happens with Dahua). There are almost always two causes:
+  1. **The ONVIF user has a password of its own.** On Dahua the ONVIF users are separate from the web page ones: when the web page password is changed, the ONVIF one stays the old one. Open the camera page, go to Settings › System › Account › **ONVIF User**, edit “admin” and set the same password as the web page. On Hikvision a separate ONVIF user must be created (see above).
+  2. **Wrong date, time or time zone.** With the wrong time (even just daylight saving) some cameras refuse the right password. In Settings › System › General › Date & Time choose the right time zone and turn on automatic sync (NTP). From version 1.5.5 PTZ Hub already tries to make up for a wrong time by itself.
+
+  **There is no need to turn ONVIF authentication off**: leave it on, otherwise anyone on the same network can move the camera.
+- **User locked**: after a few wrong attempts many cameras lock the user for a few minutes (usually 5 to 30). PTZ Hub says so and makes few attempts: wait, check the password and try again.
 - **New camera, never set up**: Dahua and Hikvision cameras must first be “activated” by choosing a password, from their web page or with the maker's app (Dahua ConfigTool, Hikvision SADP). Then come back to PTZ Hub and use that password.
 - **Forgotten password**: it is reset on the camera (reset button or the maker's support). PTZ Hub cannot recover it.
 

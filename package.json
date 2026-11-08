@@ -1,6 +1,6 @@
 {
   "name": "ptz-hub",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Pannello di controllo per telecamere PTZ via rete (VISCA over IP, ONVIF) o USB (UVC, in prova): anteprima, joystick e inquadrature per ogni account Windows",
   "main": "src/main/main.js",
   "scripts": {

@@ -1,9 +1,11 @@
 'use strict';
 const assert = require('assert');
-const { OnvifCamera } = require('../src/main/onvif');
+const { OnvifCamera, OnvifClient, setAuthHints, onAuthHint } = require('../src/main/onvif');
 const { probeOnvif } = require('../src/main/probe');
 
-const { serve, state, USER, PASS } = require('./fake-onvif');
+const {
+  serve, state, resetAuth, PRESETS, USER, PASS,
+} = require('./fake-onvif');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -60,6 +62,85 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.deepStrictEqual(pr.streams.map((s) => s.uri), ['rtsp://127.0.0.1:554/1', 'rtsp://127.0.0.1:554/2']);
 
   await cam.disconnect();
+
+  // --- accesso: le password giuste rifiutate per colpa dell'orologio (casi Dahua) ---
+  const H = '127.0.0.1';
+  const fresh = (pass = PASS) => new OnvifClient({ host: H, port, user: USER, pass });
+  let saved = null;
+  onAuthHint((all) => { saved = all; });
+  const login = async (over, pass) => {
+    setAuthHints({});
+    resetAuth(over);
+    const c = fresh(pass);
+    await c.init();
+    return c;
+  };
+
+  // camera normale con controllo dell'ora: primo tentativo, nessun errore
+  let c = await login({ windowMs: 5000 });
+  assert.strictEqual(c.authMode, 'wsse');
+  assert.strictEqual(state.auth.failures, 0);
+
+  // ora UTC dichiarata avanti di un'ora (ora legale sbagliata): firma con l'ora del PC
+  c = await login(PRESETS.dahua);
+  assert.strictEqual(c.authMode, 'wsse-pc');
+  assert.strictEqual(state.auth.failures, 1, 'un solo tentativo sbagliato');
+  assert.deepStrictEqual(saved, { [`${H}:${port}|${USER}`]: 'wsse-pc' }, 'il modo buono viene ricordato');
+
+  // ricollegandosi si parte dal modo buono: nessun tentativo sbagliato
+  state.auth.failures = 0;
+  c = fresh();
+  await c.init();
+  assert.strictEqual(c.authMode, 'wsse-pc');
+  assert.strictEqual(state.auth.failures, 0);
+  const st = await c.ptz(`<tptz:GetStatus>${c.pt()}</tptz:GetStatus>`);
+  assert.ok(/Position/.test(st));
+
+  // camera che controlla la firma con l'ora locale letta come UTC
+  c = await login({ windowMs: 5000, validate: 'local' });
+  assert.strictEqual(c.authMode, 'wsse-local');
+
+  // camera che accetta solo il Digest HTTP
+  c = await login(PRESETS.digest);
+  assert.strictEqual(c.authMode, 'http');
+  assert.ok((await c.streamUris()).length === 2, 'anche i comandi dopo usano il Digest');
+
+  // autenticazione spenta: va al primo colpo
+  c = await login({ off: true });
+  assert.strictEqual(c.authMode, 'wsse');
+
+  // password davvero sbagliata: pochi tentativi (le camere bloccano l'utente) ed errore chiaro
+  setAuthHints({});
+  resetAuth(PRESETS.dahua);
+  let err = null;
+  try { await fresh('sbagliata').init(); } catch (e) { err = e; }
+  assert.ok(err && err.auth && !err.locked, String(err));
+  assert.ok(state.auth.failures <= 3, `tentativi: ${state.auth.failures}`);
+  const pr2 = await probeOnvif(H, { user: USER, pass: 'sbagliata', ports: [port] });
+  assert.ok(pr2.ok && pr2.authFailed && /not Authorized/.test(pr2.error), JSON.stringify(pr2));
+
+  // utente bloccato dalla camera: si smette subito e lo si dice
+  resetAuth({ lockAfter: 1 });
+  err = null;
+  try { await fresh('sbagliata').init(); } catch (e) { err = e; }
+  assert.ok(err && err.auth, String(err));
+  const before = state.auth.failures;
+  err = null;
+  try { await fresh('sbagliata').init(); } catch (e) { err = e; }
+  assert.ok(err && err.locked, String(err));
+  assert.strictEqual(state.auth.failures, before, 'nessun altro tentativo a utente bloccato');
+  const lockedCam = new OnvifCamera({ host: H, port, user: USER, pass: 'sbagliata' });
+  await lockedCam.connect();
+  assert.ok(/bloccato|locked/i.test(lockedCam.detail), lockedCam.detail);
+  lockedCam.closed = true; clearTimeout(lockedCam.retryTimer);
+
+  // la sonda del primo avvio dice quale modo ha funzionato
+  setAuthHints({});
+  resetAuth(PRESETS.dahua);
+  const pr3 = await probeOnvif(H, { user: USER, pass: PASS, ports: [port] });
+  assert.ok(pr3.ok && pr3.ptz && pr3.position && pr3.authMode === 'wsse-pc', JSON.stringify(pr3));
+  resetAuth();
+
   srv.close();
   console.log('TUTTI I TEST ONVIF PASSATI');
   process.exit(0);
