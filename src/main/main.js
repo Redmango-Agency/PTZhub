@@ -82,6 +82,8 @@ const UPDATE_REPO = updates.repoFromPackage(TEST_ENV.PTZ_UPDATE_REPO
   ? { ptzPanel: { updateRepo: TEST_ENV.PTZ_UPDATE_REPO } } : PKG);
 const UPDATE_API = TEST_ENV.PTZ_UPDATE_API || updates.API_BASE;
 const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000; // ogni 6 ore (l'app resta aperta per giorni)
+const UPDATE_RETRY_MS = 15 * 60 * 1000; // controllo non riuscito: si riprova presto
+const UPDATE_FOCUS_MS = 60 * 60 * 1000;
 const APP_VERSION = PKG.version; // come app.getVersion() nel programma installato, anche nei test
 let updateStatus = { state: UPDATE_REPO ? 'idle' : 'disabled' };
 let updateTimer = null;
@@ -540,6 +542,7 @@ function createWindow() {
   win.on('resize', queueSave);
   win.on('move', queueSave);
   win.on('maximize', () => sendMain('win:maximized', true));
+  win.on('focus', checkUpdatesOnFocus);
   win.on('unmaximize', () => sendMain('win:maximized', false));
   win.on('closed', () => {
     win = null;
@@ -556,7 +559,8 @@ function createWindow() {
 }
 
 // ---------------------------------------------------------------------------
-// Aggiornamenti: si controlla poco dopo l'avvio e poi una volta al giorno; si avvisa soltanto
+// Aggiornamenti: si controlla subito dopo l'avvio, poi ogni 6 ore e quando si torna sulla
+// finestra dopo almeno un'ora; se il controllo non riesce si riprova dopo 15 minuti. Si avvisa soltanto
 
 function runUpdateCheck() {
   if (!UPDATE_REPO) {
@@ -616,14 +620,26 @@ function scheduleUpdateChecks() {
   const gen = updateGen;
   if (!UPDATE_REPO || !store.settings.updates.check) return;
   const envDelay = Number(TEST_ENV.PTZ_UPDATE_DELAY_MS);
-  const first = TEST_ENV.PTZ_UPDATE_DELAY_MS && envDelay >= 0 ? envDelay : 20000;
+  const first = TEST_ENV.PTZ_UPDATE_DELAY_MS && envDelay >= 0 ? envDelay : 3000;
   const tick = () => {
     if (gen !== updateGen) return;
-    runUpdateCheck().finally(() => {
-      if (gen === updateGen && store.settings.updates.check) updateTimer = setTimeout(tick, UPDATE_EVERY_MS);
+    runUpdateCheck().then((r) => {
+      if (gen !== updateGen || !store.settings.updates.check) return;
+      const wait = r && r.state === 'error' ? UPDATE_RETRY_MS : UPDATE_EVERY_MS;
+      clearTimeout(updateTimer);
+      updateTimer = setTimeout(tick, wait);
     });
   };
   updateTimer = setTimeout(tick, first);
+}
+
+// tornando sulla finestra dopo almeno un'ora dall'ultimo controllo se ne fa subito un altro
+function checkUpdatesOnFocus() {
+  if (!UPDATE_REPO || !store.settings.updates.check || updateRunning) return;
+  const last = updateStatus && updateStatus.checkedAt;
+  if (last && Date.now() - last < UPDATE_FOCUS_MS) return;
+  if (!last && updateTimer) return; // il primo controllo è già in programma
+  runUpdateCheck();
 }
 
 // pagina del progetto su GitHub (solo se il repository è configurato e valido)

@@ -9,7 +9,7 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 ### Cambiato
 - **Movimento fine**: «Lento» ora muove la camera alla velocità più bassa, per centrare con precisione; «Veloce» è quello che prima era il lento. Vale per le frecce a schermo e da tastiera (Maiusc = sempre lento).
 - **Camera USB su Windows: movimento fluido** se la camera accetta i comandi a velocità (gli stessi del telecomando): niente più scatti di un grado alla volta, e un clic sposta di pochissimo. Se la camera non li accetta si continua a passi, e un avviso lo dice. Si può spegnere in Impostazioni › Telecamera › «Movimento fluido via USB». Per sicurezza la camera si ferma da sola se PTZ Hub smette di confermare il movimento o si chiude.
-- Controllo delle nuove versioni ogni 6 ore invece che una volta al giorno.
+- **Avviso di nuova versione più pronto**: il controllo parte 3 secondi dopo l'avvio (prima 20), poi ogni 6 ore e quando torni sulla finestra dopo almeno un'ora; se non riesce si riprova dopo 15 minuti. Oltre al tasto «Scarica» in alto compare un avviso, visibile anche nella vista Compatta.
 
 ### Corretto
 - **Inquadrature via USB che andavano solo in orizzontale**: alcune camere, mentre la testa si muove, scartano il secondo valore (l'altezza). Ora, se la camera si ferma senza essere arrivata, PTZ Hub rimanda un asse alla volta finché non è sul punto salvato: basta un clic.

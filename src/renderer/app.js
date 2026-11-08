@@ -1792,9 +1792,14 @@ function updateText(st) {
   }
 }
 
+let updateToasted = ''; // versione già segnalata con l'avviso (che si vede anche nella vista Compatta)
 function renderUpdate(st) {
   if (st) updateState = st;
   const s = updateState;
+  if (s && s.state === 'available' && s.latest && s.latest !== updateToasted && !updateDismissed) {
+    updateToasted = s.latest;
+    toast(t('up.toast', { v: s.latest }));
+  }
   const show = !!s && s.state === 'available' && !updateDismissed;
   $('#updatePill').hidden = !show;
   if (show) $('#btnUpdateText').textContent = t('up.available', { v: s.latest });
