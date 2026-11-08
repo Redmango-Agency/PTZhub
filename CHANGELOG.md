@@ -4,6 +4,17 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 
 ## [Non ancora pubblicata]
 
+## [1.5.4] — 2026-11-08
+
+### Aggiunto
+- **Telecamere con password nel primo avvio** (Dahua, Hikvision e simili): se la telecamera chiede utente e password compare un riquadro dove scriverli e provarli subito, senza passare dalle Impostazioni. Se vengono rifiutati, si aprono i consigli: ONVIF spento (dove attivarlo su Dahua e Hikvision), telecamera nuova da attivare, password dimenticata, e un pulsante per aprire la pagina web della telecamera. Lo stesso riquadro compare se è il video a chiedere la password. Utente e password accettati vengono salvati con la telecamera.
+- **Guida passo passo** per chi usa PTZ Hub per la prima volta ([docs/guida.md](docs/guida.md), in inglese [docs/guide.md](docs/guide.md)), raggiungibile dal primo avvio con «Serve aiuto?»: password, telecamera che non compare, USB, video, comandi, inquadrature.
+
+### Corretto
+- Le telecamere virtuali (OBS Virtual Camera, Snap Camera, NVIDIA Broadcast e simili) non compaiono più tra le telecamere USB da comandare; nelle Impostazioni sono in fondo, segnate come virtuali.
+- Telecamera ONVIF senza movimento: la verifica dice «telecamera senza movimento, solo video» invece di «non risponde».
+- Impostazioni › Telecamera: se la telecamera chiede la password, il messaggio porta direttamente alle caselle di «Accesso».
+
 ## [1.5.3] — 2026-11-08
 
 ### Cambiato
@@ -93,6 +104,7 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 - Ricerca automatica della telecamera e del flusso video, installer per Windows.
 
 [Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.5.0...HEAD
+[1.5.4]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.4
 [1.5.3]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.3
 [1.5.2]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.2
 [1.5.1]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.1

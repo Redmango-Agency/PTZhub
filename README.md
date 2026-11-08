@@ -97,6 +97,8 @@ At startup and then once a day the program asks GitHub for the latest published 
 2. Video preview: it finds the RTSP stream; choose USB if the camera is connected to this computer (on Windows, with a USB camera used by OBS or Zoom, leave it off).
 3. "+ New preset" to create your shots.
 
+Camera with a password, not in the list or not moving? **[Step-by-step guide](docs/guide.md)** (also from the first start: "Need help?").
+
 ## Development
 Node.js 22.
 

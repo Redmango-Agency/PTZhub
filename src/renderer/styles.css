@@ -435,6 +435,23 @@ body.wizard-open .wizard { display: flex; flex: 1; min-height: 0; }
 .wz-check .r.wait { color: var(--muted); }
 .wz-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .wz-foot { font-size: 12.5px; color: var(--muted); text-align: center; }
+/* telecamera con password: riquadro guidato dentro la verifica */
+.wz-auth { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.wz-auth-head { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); }
+.wz-auth-head svg { color: var(--orange-ink); }
+.wz-auth-text { margin: 0; font-size: 12.5px; color: #424245; line-height: 1.45; }
+.wz-auth-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.wz-auth-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.wz-auth-field .field { width: 170px; }
+.pass-wrap { position: relative; display: inline-flex; }
+.pass-wrap .field { padding-right: 64px; }
+.pass-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; font-size: 11.5px; color: var(--link); padding: 4px 6px; cursor: pointer; }
+.wz-auth-msg { margin: 0; font-size: 12.5px; color: var(--red-ink); }
+.wz-auth-msg.ok { color: var(--green-ink); }
+.wz-help { font-size: 12.5px; color: #424245; }
+.wz-help summary { cursor: pointer; color: var(--link); font-weight: 500; }
+.wz-help ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; line-height: 1.45; }
+.wz-help-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
 .wz-url { display: flex; gap: 10px; }
 .wz-preview { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #E8E8ED; max-height: 46vh; align-self: center; width: 100%; }
 @supports (width: 1cqh) { .wz-preview { width: min(100%, 46vh * 16 / 9); } }

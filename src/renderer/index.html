@@ -559,6 +559,32 @@
             <div class="wz-check" id="wzCheckPos"></div>
             <div class="wz-check" id="wzCheckVideo"></div>
             <p class="wz-check-note" id="wzCheckNote" hidden></p>
+            <!-- telecamera protetta da password: si inseriscono qui, senza cercare nelle Impostazioni -->
+            <div class="wz-auth" id="wzAuth" hidden>
+              <div class="wz-auth-head"><span data-icon="key"></span><b id="wzAuthTitle" data-i18n="w.authTitle"></b></div>
+              <p class="wz-auth-text" data-i18n="w.authText"></p>
+              <div class="wz-auth-row">
+                <label class="wz-auth-field"><span data-i18n="w.authUser"></span><input id="wzUser" class="field" autocomplete="off" spellcheck="false"></label>
+                <label class="wz-auth-field"><span data-i18n="w.authPass"></span>
+                  <span class="pass-wrap"><input id="wzPass" class="field" type="password" autocomplete="off" spellcheck="false"><button type="button" class="pass-eye" id="wzPassEye" data-i18n="w.authShow"></button></span>
+                </label>
+                <button class="btn-primary" id="wzAuthTry" data-i18n="w.authTry"></button>
+              </div>
+              <p class="wz-auth-msg" id="wzAuthMsg" hidden></p>
+              <details class="wz-help" id="wzAuthHelp">
+                <summary data-i18n="w.authHelp"></summary>
+                <ul>
+                  <li data-i18n="w.authTip1"></li>
+                  <li data-i18n="w.authTip2"></li>
+                  <li data-i18n="w.authTip3"></li>
+                  <li data-i18n="w.authTip4"></li>
+                </ul>
+                <div class="wz-help-actions">
+                  <button class="btn-tool" id="wzOpenWeb" data-i18n="w.openWeb"></button>
+                  <button class="link-btn" id="wzAuthGuide" data-i18n="w.guideAuth"></button>
+                </div>
+              </details>
+            </div>
           </div>
           <div class="wz-actions">
             <button class="link-btn" id="wzManualBtn" data-i18n="w.manual"></button>
@@ -567,7 +593,7 @@
             <button class="btn-primary big" id="wzUse" data-i18n="w.use" disabled></button>
           </div>
         </section>
-        <p class="wz-foot"><span data-i18n="w.findFoot"></span> <button class="link-btn inline" id="wzSkip" data-i18n="w.skip"></button></p>
+        <p class="wz-foot"><span data-i18n="w.findFoot"></span> <button class="link-btn inline" id="wzSkip" data-i18n="w.skip"></button> · <button class="link-btn inline" id="wzGuide" data-i18n="w.guide"></button></p>
       </div>
 
       <!-- 2 · video -->

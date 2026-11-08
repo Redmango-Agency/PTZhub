@@ -97,6 +97,7 @@ async function run(win) {
   const result = { mode: MODE };
   try {
     if (MODE === 'wizard') await runWizard(win, js, waitFor, result);
+    else if (MODE === 'wizauth') await runWizardAuth(win, js, waitFor, result);
     else if (MODE === 'startup') await runStartup(win, js, waitFor, result);
     else if (MODE === 'usb') await runUsb(win, js, waitFor, result);
     else if (MODE === 'usb-noptz') await runUsbNoPtz(win, js, waitFor, result);
@@ -449,6 +450,43 @@ async function runMain(win, js, waitFor, result) {
 
 // ---------------------------------------------------------------------------
 // Account nuovo: primo avvio guidato, poi la Regia vuota
+
+// primo avvio con una telecamera ONVIF protetta da password (test/fake-onvif.js sulla porta 8080,
+// nessuna camera VISCA): riquadro per utente e password, password sbagliata, poi giusta
+async function runWizardAuth(win, js, waitFor, result) {
+  win.setBounds({ x: 40, y: 30, width: 1280, height: 820 });
+  await sleep(1500);
+  await waitFor("!document.querySelector('#wzSearchIcon .spinner')", 30000);
+  if (await js("document.querySelector('#wzManual').hidden")) await js("document.querySelector('#wzManualBtn').click()");
+  await js("document.querySelector('#wzHost').value = '127.0.0.1'; document.querySelector('#wzCheck').click()");
+  await waitFor("!document.querySelector('#wzAuth').hidden", 20000);
+  result.authShown = await js("!document.querySelector('#wzAuth').hidden");
+  result.authUserPrefill = await js("document.querySelector('#wzUser').value");
+  result.authCmdLine = await js("document.querySelector('#wzCheckCmd').innerText.replace(/\\s+/g, ' ').trim()");
+  result.useDisabledBefore = await js("document.querySelector('#wzUse').disabled");
+  await shot(win, 'a1-chiede-password');
+  // password sbagliata: messaggio e consigli aperti
+  await js("document.querySelector('#wzPass').value = 'sbagliata'; document.querySelector('#wzAuthTry').click()");
+  await sleep(500);
+  await waitFor("!document.querySelector('#wzAuthTry').disabled && !document.querySelector('#wzAuthMsg').hidden", 20000);
+  result.authWrongMsg = await js("document.querySelector('#wzAuthMsg').textContent");
+  result.authHelpOpen = await js("document.querySelector('#wzAuthHelp').open");
+  result.useDisabledWrong = await js("document.querySelector('#wzUse').disabled");
+  await shot(win, 'a2-password-sbagliata');
+  // password giusta (Invio nella casella): comando ONVIF, pulsante attivo, accesso riuscito
+  await js("document.querySelector('#wzPass').value = 'segreta'; document.querySelector('#wzPass').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))");
+  await waitFor("!document.querySelector('#wzUse').disabled", 20000);
+  result.authOkMsg = await js("document.querySelector('#wzAuthMsg').textContent");
+  result.authCmdOk = await js("document.querySelector('#wzCheckCmd').innerText.replace(/\\s+/g, ' ').trim()");
+  await waitFor("!document.querySelector('#wzCheckVideo .spinner')", 60000);
+  await sleep(800);
+  await shot(win, 'a3-accesso-riuscito');
+  result.overflowAuth = await js(OVERFLOW);
+  await js("document.querySelector('#wzUse').click()");
+  await waitFor("document.querySelector('.wz-step[data-step=\"2\"]').classList.contains('on')", 5000);
+  await sleep(1500);
+  result.savedCamera = await js("window.ptz.init().then((s) => `${s.settings.camera.protocol} ${s.settings.camera.port} ${s.settings.camera.user}/${s.settings.camera.pass}`)");
+}
 
 async function runWizard(win, js, waitFor, result) {
   const video = process.env.PTZ_SMOKE_VIDEO || '';

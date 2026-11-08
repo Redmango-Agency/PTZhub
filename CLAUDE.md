@@ -28,7 +28,8 @@ src/renderer/          interfaccia (app.js, index.html, side.* = linguetta Later
 src/control/           pannello per OBS
 src/shared/            i18n.js, uvc-caps.js
 streamdeck/            plugin Stream Deck (SDK v2), test e pacchetto propri
-test/                  test con camere simulate + smoke-main.js (prova completa in Electron)
+test/                  test con camere simulate (fake-visca, fake-onvif con password, fake-uvc-helper) + smoke-main.js (prova completa in Electron)
+docs/                  guida.md / guide.md (guida per chi non è esperto, aperta da «Serve aiuto?»), comandi-esterni.md
 scripts/               fetch-ffmpeg, release-notes, ci-annotate, make-dmg-linux
 ```
 
@@ -40,7 +41,7 @@ npm start
 npm test                                      # VISCA, ONVIF, collegamento esterno, hub, USB, aggiornamenti
 cd streamdeck && npm ci && npm test && npm run pack   # plugin -> streamdeck/dist/PTZ-Hub.streamDeckPlugin
 ```
-- Prova completa: `test/smoke-main.js` (modalità con `PTZ_SMOKE=main|wizard|startup|usb|usb-noptz`). È pensata per Linux con `xvfb-run` e `XDG_CONFIG_HOME` vuota: sul Mac userebbe i dati veri dell'account, quindi non lanciarla lì senza una cartella dati separata.
+- Prova completa: `test/smoke-main.js` (modalità con `PTZ_SMOKE=main|wizard|wizauth|startup|usb|usb-noptz`; `wizauth` vuole `node test/fake-onvif.js 8080` acceso). È pensata per Linux con `xvfb-run` e `XDG_CONFIG_HOME` vuota: sul Mac userebbe i dati veri dell'account, quindi non lanciarla lì senza una cartella dati separata.
 - Aiuto USB per Windows: `npm run uvc:win` (serve mingw-w64; `brew install mingw-w64` sul Mac, `apt install g++-mingw-w64-x86-64` su Linux) → `vendor/uvc-win/ptzhub-uvc.exe`.
 - Pacchetti: Windows `npm run dist:win`; Mac (dal Mac) `npx electron-builder --mac dmg --arm64 --x64`. L'app per Mac non è firmata: al primo avvio `xattr -cr "/Applications/PTZ Hub.app"`.
 

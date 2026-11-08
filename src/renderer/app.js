@@ -1164,7 +1164,8 @@ function analyzeDetection(r) {
   else if (r.onvif.ok && r.onvif.ptz && r.onvif.position) chosen = { protocol: 'onvif', port: r.onvif.port };
   else if (anyVisca) { chosen = { protocol: proto[anyVisca.mode], port: anyVisca.port }; needSlot = true; }
   else if (r.onvif.ok && r.onvif.ptz) { chosen = { protocol: 'onvif', port: r.onvif.port }; needSlot = true; }
-  const onvifAuth = !chosen && r.onvif.ok && r.onvif.error && /author|autoriz|401/i.test(r.onvif.error);
+  const onvifAuth = !chosen && r.onvif.ok && r.onvif.error && /author|autoriz|401|password|credential/i.test(r.onvif.error);
+  const onvifNoPtz = !chosen && r.onvif.ok && !r.onvif.error && !r.onvif.ptz;
   const line = (html, cls = '') => `<div class="line ${cls}">${html}</div>`;
   const rows = [];
   for (const v of r.visca) {
@@ -1180,7 +1181,7 @@ function analyzeDetection(r) {
   if (r.http.ok) rows.push(line(`${esc(t('d.web', { title: r.http.title || t('d.webPresent') }))}${r.http.server ? ` (${esc(r.http.server)})` : ''}`, 'bad'));
   if (chosen) rows.unshift(line(`<b>${esc(t('d.set', { protocol: PROTOCOL_LABEL[chosen.protocol], port: chosen.port }))}</b>${needSlot ? esc(t('d.setSlot')) : ''}`, 'ok'));
   return {
-    chosen, needSlot, onvifAuth, anyReply: !!(r.onvif.ok || r.http.ok || anyVisca), rows,
+    chosen, needSlot, onvifAuth, onvifNoPtz, anyReply: !!(r.onvif.ok || r.http.ok || anyVisca), rows,
   };
 }
 
@@ -1323,6 +1324,10 @@ $('#sProtocol').addEventListener('change', () => {
 segBind($('#sSide'));
 
 // videocamere collegate al PC. I nomi a volte restano nascosti finché non si apre una camera
+// telecamere virtuali: programmi che si presentano come webcam, senza una testa da muovere
+const VIRTUAL_CAM = /OBS Virtual|Virtual ?Cam|Snap Camera|NVIDIA Broadcast|ManyCam|XSplit|Logi Capture|DroidCam|Iriun|\bCamo\b|e2eSoft|SplitCam|YouCam|vMix Video|Streamlabs|mmhmm|Elgato Virtual|Camera Hub|AlterCam|CamTwist|Epoc ?Cam|NDI Virtual|NewTek NDI/i;
+const isVirtualCam = (label) => VIRTUAL_CAM.test(String(label || ''));
+
 async function videoDevices() {
   const list = async () => (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
   let devs = await list();
@@ -1355,8 +1360,8 @@ async function listUvcDevices(selectedId, selectedLabel) {
   try { devs = await videoDevices(); } catch (_) { devs = []; }
   const opts = devs.map((d, i) => {
     const label = d.label || t('s.usbCamera', { n: i + 1 });
-    return { id: d.deviceId, label, text: label };
-  });
+    return { id: d.deviceId, label, text: isVirtualCam(label) ? t('s.usbVirtual', { name: label }) : label, virtual: isVirtualCam(label) };
+  }).sort((a, b) => Number(a.virtual) - Number(b.virtual));
   let pick = opts.find((o) => selectedId && o.id === selectedId) || opts.find((o) => selectedLabel && o.label === selectedLabel);
   if (!pick && (selectedId || selectedLabel)) {
     pick = { id: selectedId || '', label: selectedLabel || '', text: t('s.uvcMissing', { name: selectedLabel || 'USB' }) };
@@ -1626,8 +1631,14 @@ async function detectProtocol() {
       if (a.needSlot) $('#sModeSlot').checked = true;
       setLine($('#detectIcon'), $('#detectText'), a.needSlot ? 'warn' : 'ok', a.needSlot ? t('d.sumSlot') : t('d.sumOk'));
     } else if (a.onvifAuth) {
+      // utente e password sono qui sotto in «Accesso»: ci si porta lì
       detectedProtocol = null;
-      setLine($('#detectIcon'), $('#detectText'), 'bad', t('d.onvifAuth'));
+      setLine($('#detectIcon'), $('#detectText'), 'bad', t(c.pass ? 'd.onvifAuthWrong' : 'd.onvifAuth'));
+      $('#sPass').scrollIntoView({ block: 'center', behavior: 'smooth' });
+      setTimeout(() => (c.pass ? $('#sPass').select() : $('#sPass').focus()), 250);
+    } else if (a.onvifNoPtz) {
+      detectedProtocol = null;
+      setLine($('#detectIcon'), $('#detectText'), 'bad', t('w.noPtz'));
     } else {
       detectedProtocol = null;
       setLine($('#detectIcon'), $('#detectText'), 'bad', t('d.nothing'));
@@ -2106,7 +2117,7 @@ async function wzSearch() {
   $('#wzSearchAgain').disabled = true;
   wzSetSearch('busy', t('w.searching'), t('w.searchingSub'));
   // camere collegate via USB: si cercano insieme a quelle in rete
-  const usbFound = videoDevices().catch(() => []);
+  const usbFound = videoDevices().then((l) => l.filter((d) => !isVirtualCam(d.label))).catch(() => []);
   try {
     const r = await ptz.discover();
     const usb = await usbFound;
@@ -2167,14 +2178,18 @@ async function wzCheck(host) {
   wz.usb = null;
   renderWzUsbDevices();
   wzNote('');
+  if ($('#wzAuth').dataset.host !== host) wzAuthShow(null);
   $('#wzUse').disabled = true;
   $('#wzChecks').hidden = false;
   $('#wzChecksTitle').textContent = t('w.checkOf', { host });
   wzCheckLine($('#wzCheckCmd'), 'wait', t('w.cmd'), t('w.checkingShort'));
   wzCheckLine($('#wzCheckPos'), 'wait', t('w.pos'), t('w.checkingShort'));
   wzCheckLine($('#wzCheckVideo'), 'wait', t('w.video'), t('w.checkingShort'));
-  const user = settings.camera.user || 'admin';
-  const pass = settings.camera.pass || '';
+  // utente e password: quelli scritti nel riquadro (se provati), altrimenti quelli salvati
+  const tried = !!(wz.cred && wz.cred.host === host);
+  const user = tried ? wz.cred.user : (settings.camera.user || 'admin');
+  const pass = tried ? wz.cred.pass : (settings.camera.pass || '');
+  $('#wzAuthTry').disabled = true;
   let a;
   try {
     const r = await ptz.detectProtocols({ host, user, pass, address: 1 });
@@ -2183,17 +2198,27 @@ async function wzCheck(host) {
   } catch (e) {
     if (token !== wz.token) return;
     wzCheckLine($('#wzCheckCmd'), 'bad', t('w.cmd'), errMsg(e));
+    $('#wzAuthTry').disabled = false;
     return;
   }
-  wz.analysis = { ...a, host };
+  $('#wzAuthTry').disabled = false;
+  wz.analysis = { ...a, host, user, pass, cred: tried };
   if (a.chosen) {
     wzCheckLine($('#wzCheckCmd'), 'ok', `${t('w.cmd')} · ${PROTOCOL_DESC[a.chosen.protocol]} ${a.chosen.port}`, t('w.replies'));
     if (a.needSlot) wzCheckLine($('#wzCheckPos'), 'warn', t('w.pos'), t('w.posSlot'));
     else wzCheckLine($('#wzCheckPos'), 'ok', t('w.pos'), t('w.posOk'));
     $('#wzUse').disabled = false;
-  } else {
-    wzCheckLine($('#wzCheckCmd'), 'bad', a.onvifAuth ? t('d.onvifAuth') : t('w.cmd'), t('w.noReply'));
+    if (tried && a.chosen.protocol === 'onvif') wzAuthShow(host, 'ok');
+    else if (!tried) wzAuthShow(null);
+  } else if (a.onvifAuth) {
+    // protetta da password: riquadro per inserirla qui (se era già stata provata, è sbagliata)
+    wzCheckLine($('#wzCheckCmd'), 'bad', t('w.cmdAuth'), t(tried ? 'w.authRefused' : 'w.authNeeded'));
     wzCheckLine($('#wzCheckPos'), '', t('w.pos'), '—');
+    wzAuthShow(host, tried ? 'wrong' : 'ask', user);
+  } else {
+    wzCheckLine($('#wzCheckCmd'), 'bad', a.onvifNoPtz ? t('w.noPtz') : t('w.cmd'), a.onvifNoPtz ? t('w.noPtzShort') : t('w.noReply'));
+    wzCheckLine($('#wzCheckPos'), '', t('w.pos'), '—');
+    if (!tried) wzAuthShow(null);
   }
   // flusso video: può richiedere fino a un minuto, intanto si può già andare avanti
   try {
@@ -2202,8 +2227,11 @@ async function wzCheck(host) {
     if (token !== wz.token) return;
     const ok = list.find((x) => x.ok);
     wz.rtsp = ok ? { url: ok.url, display: ok.display } : { url: '', display: '' };
+    // il video chiede la password (e i comandi no): stesso riquadro
+    const videoAuth = !ok && list.some((x) => x.note === t('r.needsPassword'));
     if (ok) wzCheckLine($('#wzCheckVideo'), 'ok', `${t('w.video')} · ${ok.display}`, t('w.videoOk'));
-    else wzCheckLine($('#wzCheckVideo'), 'warn', t('w.video'), t('w.videoNone'));
+    else wzCheckLine($('#wzCheckVideo'), 'warn', t('w.video'), videoAuth ? t('w.authNeeded') : t('w.videoNone'));
+    if (videoAuth && $('#wzAuth').hidden) wzAuthShow(host, tried ? 'wrong' : 'askVideo', user);
     // la camera è già stata scelta mentre si cercava il video: si usa subito il flusso trovato
     if (ok && wz.saved && wz.saved === host && !settings.preview.rtspUrl
       && document.body.classList.contains('wizard-open') && !wz.sourcePicked) await wzSavePreview('rtsp', ok.url);
@@ -2213,6 +2241,48 @@ async function wzCheck(host) {
     wzCheckLine($('#wzCheckVideo'), 'warn', t('w.video'), t('w.videoNone'));
   }
 }
+
+// riquadro «utente e password»: state = ask | askVideo | wrong | ok, null = nascosto
+function wzAuthShow(host, state, user) {
+  const box = $('#wzAuth');
+  if (!host) { box.hidden = true; return; }
+  const wasHidden = box.hidden;
+  box.hidden = false;
+  box.dataset.host = host;
+  $('#wzAuthTitle').textContent = t(state === 'ok' ? 'w.authTitleOk' : state === 'askVideo' ? 'w.authTitleVideo' : 'w.authTitle');
+  // accesso riuscito: i consigli non servono più
+  $('#wzAuthHelp').hidden = state === 'ok';
+  if (state === 'ok') $('#wzAuthHelp').open = false;
+  if (wasHidden || !$('#wzUser').value) $('#wzUser').value = user || (wz.cred && wz.cred.user) || settings.camera.user || 'admin';
+  const msg = $('#wzAuthMsg');
+  msg.hidden = state !== 'wrong' && state !== 'ok';
+  msg.classList.toggle('ok', state === 'ok');
+  msg.textContent = state === 'wrong' ? t('w.authWrong') : state === 'ok' ? t('w.authOk') : '';
+  // rifiutata: i consigli si aprono da soli
+  if (state === 'wrong') $('#wzAuthHelp').open = true;
+  $$('#wzAuth .wz-auth-row, #wzAuth .wz-auth-text').forEach((el) => { el.hidden = state === 'ok'; });
+  if (state === 'ask' || state === 'askVideo' || state === 'wrong') setTimeout(() => (state === 'wrong' ? $('#wzPass').select() : $('#wzPass').focus({ preventScroll: true })), 0);
+  // il riquadro (o, ad accesso riuscito, il pulsante per andare avanti) deve essere in vista
+  setTimeout(() => (state === 'ok' ? $('#wzUse') : box).scrollIntoView({ block: state === 'wrong' ? 'end' : 'nearest', behavior: 'smooth' }), 60);
+}
+
+function wzAuthTry() {
+  const host = $('#wzAuth').dataset.host;
+  if (!host) return;
+  wz.cred = { host, user: $('#wzUser').value.trim() || 'admin', pass: $('#wzPass').value };
+  wzCheck(host);
+}
+$('#wzAuthTry').addEventListener('click', wzAuthTry);
+$('#wzPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); wzAuthTry(); } });
+$('#wzUser').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#wzPass').focus(); } });
+$('#wzPassEye').addEventListener('click', () => {
+  const p = $('#wzPass');
+  p.type = p.type === 'password' ? 'text' : 'password';
+  $('#wzPassEye').textContent = t(p.type === 'password' ? 'w.authShow' : 'w.authHide');
+});
+$('#wzOpenWeb').addEventListener('click', () => { const h = $('#wzAuth').dataset.host; if (h) ptz.openCameraPage(h); });
+$('#wzAuthGuide').addEventListener('click', () => ptz.openGuide('password'));
+$('#wzGuide').addEventListener('click', () => ptz.openGuide(''));
 
 $('#wzSearchAgain').addEventListener('click', () => wzSearch());
 $('#wzDevices').addEventListener('click', (e) => {
@@ -2259,7 +2329,8 @@ async function wzShowUsb(on) {
   if (!on) return;
   let devs = [];
   try { devs = await videoDevices(); } catch (_) { devs = []; }
-  wz.usbDevices = devs.map((d, i) => ({ deviceId: d.deviceId, label: d.label || t('s.usbCamera', { n: i + 1 }) }));
+  wz.usbDevices = devs.filter((d) => !isVirtualCam(d.label))
+    .map((d, i) => ({ deviceId: d.deviceId, label: d.label || t('s.usbCamera', { n: i + 1 }) }));
   renderWzUsbDevices();
 }
 
@@ -2271,6 +2342,7 @@ async function wzSelectUsb(deviceId) {
   wz.mode = 'usb';
   wz.selected = null; // nessuna camera di rete scelta
   wz.analysis = null;
+  wzAuthShow(null);
   wz.usb = { ...d, ok: false };
   renderWzDevices();
   renderWzUsbDevices();
@@ -2357,6 +2429,7 @@ $('#wzUse').addEventListener('click', async () => {
       port: a.chosen.port,
       address: 1,
     };
+    if (a.cred) { camera.user = a.user; camera.pass = a.pass; } // inseriti nel riquadro e accettati
     const partial = { camera, presetMode: a.needSlot ? 'slot' : 'app' };
     if (wz.rtsp && wz.rtsp.url) partial.preview = { source: 'rtsp', rtspUrl: wz.rtsp.url };
     await wzSave(partial);

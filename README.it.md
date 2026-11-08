@@ -97,6 +97,8 @@ All'avvio e poi una volta al giorno il programma chiede a GitHub qual è l'ultim
 2. Anteprima video: trova il flusso RTSP; scegli USB se la camera è collegata a questo computer (su Windows, con una camera USB usata da OBS o Zoom, lasciala spenta).
 3. «+ Nuova inquadratura» per creare le tue inquadrature.
 
+Telecamera con password, che non compare o che non si muove? **[Guida passo passo](docs/guida.md)** (anche dal primo avvio: «Serve aiuto?»).
+
 ## Sviluppo
 Serve Node.js 22.
 

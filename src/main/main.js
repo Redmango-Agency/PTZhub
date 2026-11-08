@@ -909,6 +909,30 @@ function registerIpc() {
     return true;
   });
 
+  // pagina web della telecamera (per attivare ONVIF o cambiare la password): solo indirizzi della
+  // rete locale, la pagina non può aprire siti qualsiasi
+  ipcMain.handle('app:openCameraPage', (_e, host) => {
+    const h = String(host || '').trim();
+    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+    const priv = m && m.slice(1).every((x) => Number(x) <= 255)
+      && (m[1] === '10' || (m[1] === '192' && m[2] === '168') || (m[1] === '172' && Number(m[2]) >= 16 && Number(m[2]) <= 31)
+        || (m[1] === '169' && m[2] === '254'));
+    const local = /^[a-z0-9-]+(\.local)?$/i.test(h);
+    if (!priv && !local) return false;
+    shell.openExternal(`http://${h}/`);
+    return true;
+  });
+
+  // guida passo passo su GitHub, nella lingua dell'app
+  ipcMain.handle('app:openGuide', (_e, topic) => {
+    const base = 'https://github.com/Redmango-Agency/PTZhub/blob/main/docs/';
+    const en = I18N.getLang() === 'en';
+    const page = en ? 'guide.md' : 'guida.md';
+    const anchors = { password: en ? '#the-camera-asks-for-a-password' : '#la-telecamera-chiede-utente-e-password' };
+    shell.openExternal(base + page + (anchors[topic] || ''));
+    return true;
+  });
+
   ipcMain.handle('app:openProject', () => {
     const url = projectUrl();
     if (!url) return false;
