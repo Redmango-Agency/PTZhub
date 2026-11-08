@@ -25,8 +25,11 @@ const TIMING = {
   zoomFullS: 5, // zoom: da largo a stretto in 5 s
   focusFullS: 4, // fuoco: tutta la corsa in 4 s
   confirmEveryMs: 300, // richiamo: ogni quanto si controlla che la camera sia arrivata
-  confirmMs: 12000, // per quanto al massimo (le camere lente impiegano qualche secondo)
-  maxResend: 4, // quante volte si rimanda la posizione se la camera si è fermata altrove
+  confirmMs: 20000, // per quanto al massimo (le camere lente impiegano qualche secondo)
+  maxResend: 8, // quante volte si rimanda un asse se la camera si è fermata altrove
+  resendGapMs: 600, // tra un rinvio e l'altro (la testa deve avere il tempo di partire)
+  relPulseMs: 120, // passo fine col movimento a velocità: la camera si muove piano per un attimo
+  relKeepMs: 400, // durante il movimento a velocità si conferma il comando (l'aiuto ferma dopo 1,5 s)
   retryMs: 3000, // camera scollegata o occupata: si riprova ogni 3 s
   resyncAfterMs: 1500, // comando manuale dopo 1,5 s senza comandi nostri: prima si rilegge la posizione vera
 };
@@ -80,6 +83,16 @@ class UvcCamera extends EventEmitter {
     this.syncedAt = 0; // ultima rilettura della posizione vera
     this.resyncing = null; // rilettura in corso (promessa)
     this.ptSync = false; // il prossimo pan o tilt parte insieme all'altro asse
+    // movimento «a velocità» (pan e tilt relativi, solo Windows e se la camera li accetta):
+    // fluido e fine anche quando la posizione assoluta della camera va a gradi interi
+    this.rel = null; // gamme delle velocità { pan, tilt } o null
+    this.relProbed = false; // si prova una volta per avvio
+    this.relWant = { pan: 0, tilt: 0 };
+    this.relCur = { pan: 0, tilt: 0 };
+    this.relBusy = false;
+    this.relDirty = false;
+    this.relKeep = null;
+    this.relPulse = null;
     this.retryTimer = null;
     this.lastErrorLog = 0;
     this._onEnded = () => this._lost(t('uvc.unplugged'));
@@ -150,6 +163,7 @@ class UvcCamera extends EventEmitter {
       if (!this.zoomOnlyLogged) { this.zoomOnlyLogged = true; this.emit('log', t('uvc.zoomOnly')); }
     } else {
       this._setState('connected', '');
+      this._probeRel();
     }
   }
 
@@ -177,6 +191,7 @@ class UvcCamera extends EventEmitter {
     this.ready = false;
     this.gen += 1; // un richiamo in corso si ferma
     this._stopMotion();
+    this._relReset(); // la camera la ferma l'aiuto (nuova apertura o controllo di sicurezza)
     this.queue = null;
     this._setState('error', detail, 'notfound');
     this.link.close().catch(() => {});
@@ -188,6 +203,8 @@ class UvcCamera extends EventEmitter {
     clearTimeout(this.retryTimer);
     this.gen += 1;
     this._stopMotion();
+    if (this.relCur.pan || this.relCur.tilt) await this._relHalt();
+    this._relReset();
     this.queue = null;
     this.ready = false;
     this.link.removeListener('ended', this._onEnded);
@@ -360,8 +377,21 @@ class UvcCamera extends EventEmitter {
   move(x, y) {
     if (this.opts.invertPan) x = -x;
     if (this.opts.invertTilt) y = -y;
-    this.vel.x = this.axes.pan ? clamp(Number(x) || 0, -1, 1) : 0;
-    this.vel.y = this.axes.tilt ? clamp(Number(y) || 0, -1, 1) : 0;
+    x = this.axes.pan ? clamp(Number(x) || 0, -1, 1) : 0;
+    y = this.axes.tilt ? clamp(Number(y) || 0, -1, 1) : 0;
+    if (this._relOn()) {
+      // la camera si muove da sola alla velocità data: niente passi assoluti
+      clearTimeout(this.relPulse);
+      this.relPulse = null;
+      this.vel.x = 0;
+      this.vel.y = 0;
+      if (x || y) this._interrupt();
+      this._relDrive(this._relSpeed('pan', x), this._relSpeed('tilt', y));
+      this._kick();
+      return;
+    }
+    this.vel.x = x;
+    this.vel.y = y;
     if (this.vel.x || this.vel.y) this._interrupt();
     this._kick();
   }
@@ -374,6 +404,16 @@ class UvcCamera extends EventEmitter {
     if (this.opts.invertTilt) dy = -dy;
     this._stopMotion();
     this._interrupt();
+    if (this._relOn()) {
+      // passo fine: la camera si muove alla velocità più bassa per un attimo, poi si ferma
+      clearTimeout(this.relPulse);
+      this._relDrive(this._relSpeed('pan', Math.sign(dx) * 1e-6), this._relSpeed('tilt', Math.sign(dy) * 1e-6));
+      this.relPulse = setTimeout(() => {
+        this.relPulse = null;
+        this._relDrive(0, 0);
+      }, this.tm.relPulseMs);
+      return;
+    }
     const g = this.gen;
     if (this.resyncing || this._needsResync()) await this._resync();
     if (g !== this.gen || !this.ready) return; // nel frattempo è arrivato un altro comando
@@ -427,7 +467,111 @@ class UvcCamera extends EventEmitter {
   stopAll() {
     this.gen += 1; // ferma anche un richiamo o Home in corso
     this._stopMotion();
+    clearTimeout(this.relPulse);
+    this.relPulse = null;
+    if (this.relWant.pan || this.relWant.tilt || this.relCur.pan || this.relCur.tilt) this._relDrive(0, 0);
     if (this.absMoving) this._halt();
+  }
+
+  // ---- movimento a velocità (pan e tilt relativi) --------------------------
+
+  _relOn() {
+    return !!(this.ready && this.rel && this.opts.smooth !== false && this.axes.pan && this.axes.tilt);
+  }
+
+  // si chiede all'aiuto (solo Windows) se la camera accetta i comandi a velocità; una volta per
+  // avvio: se l'aiuto si blocca o rifiuta, si resta sui passi assoluti
+  async _probeRel() {
+    if (this.relProbed) { this.rel = this.relCaps || null; return; }
+    if (typeof this.link.relCaps !== 'function' || this.opts.smooth === false) return;
+    this.relProbed = true;
+    let caps = null;
+    try {
+      caps = await this.link.relCaps();
+    } catch (e) {
+      if (e && e.name === 'AbortError' && typeof this.link.kill === 'function') this.link.kill(); // aiuto bloccato
+      caps = null;
+    }
+    const ok = (c) => c && num(c.min) && num(c.max) && Math.max(Math.abs(c.min), Math.abs(c.max)) >= 1;
+    this.relCaps = caps && ok(caps.pan) && ok(caps.tilt) ? { pan: caps.pan, tilt: caps.tilt } : null;
+    this.rel = this.ready ? this.relCaps : null;
+    this.emit('log', t(this.relCaps ? 'uvc.smoothOn' : 'uvc.smoothOff'));
+  }
+
+  // velocità per la camera: v da -1 a 1 (0 = ferma); la più bassa è 1 (o il passo della gamma)
+  _relSpeed(axis, v) {
+    if (!v) return 0;
+    const c = this.rel && this.rel[axis];
+    if (!c) return 0;
+    const hi = Math.max(Math.abs(c.min), Math.abs(c.max));
+    const lo = Math.min(hi, Math.max(1, num(c.step) && c.step > 1 ? c.step : 1));
+    return Math.sign(v) * Math.round(lo + (hi - lo) * Math.min(1, Math.abs(v)));
+  }
+
+  _relDrive(pan, tilt) {
+    this.relWant = { pan, tilt };
+    const moving = !!(pan || tilt);
+    clearInterval(this.relKeep);
+    this.relKeep = moving ? setInterval(() => this._relFlush(true), this.tm.relKeepMs) : null;
+    if (!moving) {
+      // la camera si è mossa da sola: al prossimo comando assoluto si rilegge dove si trova
+      this.lastSendAt = 0;
+      this.syncedAt = 0;
+    }
+    this._relFlush(false);
+  }
+
+  // un comando alla volta all'aiuto; vale sempre l'ultimo chiesto
+  _relFlush(keepAlive) {
+    if (!this.ready || !this.rel) return;
+    if (this.relBusy) { this.relDirty = true; return; }
+    const want = { ...this.relWant };
+    if (!keepAlive && want.pan === this.relCur.pan && want.tilt === this.relCur.tilt) return;
+    if (keepAlive && !want.pan && !want.tilt) return;
+    this.relBusy = true;
+    this.link.rel(want).then(() => {
+      this.relCur = want;
+    }, (e) => this._relFailed(e)).finally(() => {
+      this.relBusy = false;
+      if (this.relDirty) {
+        this.relDirty = false;
+        this._relFlush(false);
+      }
+    });
+  }
+
+  _relFailed(e) {
+    const code = classifyError(e);
+    if (code === 'notfound') { this._lost(errorText(code, e)); return; }
+    // rifiutato dalla camera: da qui si va a passi assoluti (l'aiuto ha già fermato la camera)
+    this._relReset();
+    this.rel = null;
+    this.relCaps = null;
+    this.emit('log', t('uvc.smoothFailed'));
+  }
+
+  // ferma subito il movimento a velocità e aspetta la risposta (prima di un comando assoluto)
+  async _relHalt() {
+    clearTimeout(this.relPulse);
+    this.relPulse = null;
+    clearInterval(this.relKeep);
+    this.relKeep = null;
+    this.relWant = { pan: 0, tilt: 0 };
+    if (!this.relCur.pan && !this.relCur.tilt && !this.relBusy) return;
+    try { await this.link.rel({ pan: 0, tilt: 0 }); } catch (_) { /* l'aiuto ferma comunque */ }
+    this.relCur = { pan: 0, tilt: 0 };
+    this.lastSendAt = 0;
+    this.syncedAt = 0;
+  }
+
+  _relReset() {
+    clearTimeout(this.relPulse);
+    this.relPulse = null;
+    clearInterval(this.relKeep);
+    this.relKeep = null;
+    this.relWant = { pan: 0, tilt: 0 };
+    this.relCur = { pan: 0, tilt: 0 };
+    this.relDirty = false;
   }
 
   // ---- posizioni assolute: inquadrature e Home ----------------------------
@@ -441,6 +585,7 @@ class UvcCamera extends EventEmitter {
     const keys = Object.keys(target);
     if (!keys.length) return;
     check();
+    if (this.relCur.pan || this.relCur.tilt || this.relBusy || this.relPulse) await this._relHalt();
     await this._idle(); // prima finisce quello che era già partito
     check();
     Object.assign(this.pos, target);
@@ -448,7 +593,7 @@ class UvcCamera extends EventEmitter {
       const a = this.axes[k];
       return Math.max(a.step || 0, (a.max - a.min) * 0.002, 1e-6);
     };
-    const arrived = (st) => keys.every((k) => !num(st[k]) || Math.abs(st[k] - target[k]) <= tol(k));
+    const missing = (st) => keys.filter((k) => num(st[k]) && Math.abs(st[k] - target[k]) > tol(k));
     const sameAs = (a, b) => keys.every((k) => a[k] === b[k]);
     const deadline = Date.now() + this.tm.confirmMs;
     this.absMoving = true;
@@ -457,23 +602,34 @@ class UvcCamera extends EventEmitter {
       await this._idle();
       let prev = null;
       let resent = 0;
+      let resentAt = Date.now();
       for (;;) {
         check();
         let st = null;
         // eslint-disable-next-line no-await-in-loop
         try { st = await this.link.settings(); } catch (_) { st = null; }
         check();
-        if (!st || arrived(st)) return; // arrivata (o la camera non comunica la posizione)
+        if (!st) return; // la camera non comunica la posizione
+        const miss = missing(st);
+        if (!miss.length) return; // arrivata
         if (Date.now() >= deadline) {
           this.emit('log', t('uvc.notArrived'));
           return;
         }
-        // camera ferma ma non sul punto giusto: il comando è andato perso, si rimanda
-        if (prev && sameAs(st, prev) && resent < this.tm.maxResend) {
+        // camera ferma ma non sul punto giusto: alcune camere USB, mentre la testa si muove,
+        // scartano i valori arrivati subito dopo il primo (va in orizzontale ma non in altezza).
+        // Si rimanda UN asse alla volta, a turno tra quelli che mancano.
+        if (prev && sameAs(st, prev) && resent < this.tm.maxResend && Date.now() - resentAt >= this.tm.resendGapMs) {
+          const k = miss[resent % miss.length];
           resent += 1;
-          this._send({ ...target });
+          resentAt = Date.now();
+          this._send({ [k]: target[k] });
           // eslint-disable-next-line no-await-in-loop
           await this._idle();
+          prev = null;
+          // eslint-disable-next-line no-await-in-loop
+          await sleep(this.tm.confirmEveryMs);
+          continue;
         }
         prev = st;
         // eslint-disable-next-line no-await-in-loop

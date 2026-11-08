@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS = {
     pass: '',
     invertPan: false,
     invertTilt: false,
+    usbSmooth: true, // camera USB: movimento a velocità (fluido e fine), se la camera lo accetta
     // camera comandata via USB: dispositivo scelto e nome, per ritrovarlo se cambia presa
     usbDeviceId: '',
     usbLabel: '',

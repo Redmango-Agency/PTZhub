@@ -33,7 +33,7 @@ PTZ Hub gives you live preview, arrows (slow or fast), zoom and focus, and **pre
 - **Separate presets for every Windows / macOS account**, with export and import.
 - **Fast recall**: click the thumbnail, keys `1`–`9` and `0`, or global shortcuts that also work with OBS, vMix or PowerPoint in front.
 - **Live preview** over RTSP (ffmpeg included) or USB, rule-of-thirds grid, 180° rotation for ceiling mounts.
-- **Manual control**: on-screen and keyboard arrows (a click moves one small step to centre the shot, hold to move; **Fine** or Shift = slow), zoom, auto/manual focus, Home, **STOP** (`Esc` or `Space`).
+- **Manual control**: on-screen and keyboard arrows in a circle with Home in the middle (a click moves just a little to centre the shot, hold to move; **Slow** = fine movement, **Fast**, Shift = always slow), zoom, auto/manual focus, Home, **STOP** (`Esc` or `Space`).
 - **Made for live shows**: always-on-top window, safety stop on release, on focus loss and on quit; a recall in progress is interrupted by STOP.
 - **Reduced views**: **Compact** column always on top, or a **Side** tab docked to the left or right edge of the screen that opens on mouse hover.
 - **Automatic discovery**: finds cameras on the network (ONVIF WS-Discovery + scan), detects the protocol and the video stream address.

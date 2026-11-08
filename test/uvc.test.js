@@ -66,6 +66,16 @@ class FakeLink extends EventEmitter {
   }
 
   async apply(v) {
+    // camera che di un comando con più assi prende solo il primo (link.firstOnly)
+    if (this.firstOnly && this.track) {
+      const keys = Object.keys(v).filter((k) => ['pan', 'tilt', 'zoom'].includes(k));
+      if (keys.length > 1) {
+        const keep = { [keys[0]]: v[keys[0]] };
+        this.applied.push({ ...v, partial: true });
+        await this.track.applyConstraints({ advanced: [keep] });
+        return this.track.getSettings();
+      }
+    }
     // camera che scarta i comandi di posizione mentre la testa si muove (link.drop = quanti)
     if (this.drop > 0 && this.track && (v.pan !== undefined || v.tilt !== undefined || v.zoom !== undefined)) {
       this.drop -= 1;
@@ -105,7 +115,7 @@ const PTZ_CAPS = {
 const START = { pan: 0, tilt: 0, zoom: 100, focusMode: 'continuous', focusDistance: 50 };
 
 // tempi accorciati: pan/tilt tutta la corsa (340) in 0,5 s alla velocità 1
-const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, retryMs: 60, confirmEveryMs: 20, confirmMs: 1500 };
+const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, retryMs: 60, confirmEveryMs: 20, confirmMs: 1500, resendGapMs: 30 };
 
 async function makeCam(linkOpts, camOpts = {}) {
   const link = new FakeLink(linkOpts);
@@ -217,12 +227,19 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   await cam.gotoPosition(pos, 0.5);
   assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [pos.pan, pos.tilt, pos.zoom]);
   assert.strictEqual(moves(before), 1, 'anche a velocità ridotta: un solo comando assoluto, niente passi dalla posizione attuale');
-  // la camera perde il comando mentre si muove: si rimanda finché non è sul punto salvato
+  // la camera perde il comando mentre si muove: si rimanda (un asse alla volta) finché non è sul punto salvato
   link.drop = 2;
   before = link.applied.length;
-  await cam.gotoPosition({ kind: 'usb', pan: 50, tilt: 20, zoom: 200 }, 1);
-  assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [50, 20, 200]);
-  assert.strictEqual(moves(before), 3, 'due comandi persi, il terzo arriva');
+  await cam.gotoPosition({ kind: 'usb', pan: 50, tilt: 20, zoom: 250 }, 1);
+  assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [50, 20, 250], JSON.stringify(link.applied.slice(before)));
+  const resends = link.applied.slice(before + 1);
+  assert.ok(resends.every((v) => Object.keys(v).filter((k) => k !== 'dropped').length === 1), `rinvii di un asse alla volta: ${JSON.stringify(resends)}`);
+  // camera che di un comando con più assi prende solo il primo (la Tenveo: va in orizzontale, non in altezza)
+  link.firstOnly = true;
+  before = link.applied.length;
+  await cam.gotoPosition({ kind: 'usb', pan: -60, tilt: -25, zoom: 120 }, 1);
+  link.firstOnly = false;
+  assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [-60, -25, 120], `al primo clic arriva anche in altezza: ${JSON.stringify(link.applied.slice(before))}`);
   ok(`richiamo esatto pan ${pos.pan} tilt ${pos.tilt} zoom ${pos.zoom}: sempre la posizione salvata, rimandata se la camera la perde`);
 
   // 6. fuoco salvato in manuale: al richiamo torna la distanza

@@ -13,8 +13,9 @@ const ok = (name) => { pass += 1; console.log(`  ok  ${name}`); };
 const FAKE = path.join(__dirname, 'fake-uvc-helper.js');
 const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, recallFullS: 0.3, retryMs: 80 };
 
-function link(mode = 'ptz') {
-  process.env.FAKE_UVC = mode; // ereditata dal processo dell'aiuto
+function link(mode = 'ptz', rel = '1') {
+  process.env.FAKE_UVC = mode; // ereditate dal processo dell'aiuto
+  process.env.FAKE_UVC_REL = rel;
   return new UvcNativeLink({ exe: process.execPath, args: [FAKE] });
 }
 
@@ -60,8 +61,8 @@ async function main() {
   await cam.disconnect();
   ok('driver USB sopra l’aiuto di Windows: movimento, STOP e richiamo esatto');
 
-  // --- passo piccolo: un passo della griglia della camera, nella direzione giusta
-  l = link();
+  // --- passo piccolo senza comandi a velocità: un passo della griglia, nella direzione giusta
+  l = link('ptz', '0');
   cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING });
   await cam.connect();
   const s0 = await l.settings();
@@ -77,6 +78,81 @@ async function main() {
   await cam.disconnect();
   ok('passo piccolo via USB: un passo della griglia per clic');
 
+  // --- movimento a velocità (Windows, se la camera lo accetta): fluido e fine
+  l = link();
+  cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: { ...TIMING, relPulseMs: 120, relKeepMs: 200 } });
+  const logs = [];
+  cam.on('log', (m) => logs.push(m));
+  await cam.connect();
+  await sleep(100);
+  assert.ok(cam._relOn(), 'comandi a velocità disponibili');
+  assert.ok(logs.some((m) => /fluido/.test(m)), `avviso «movimento fluido»: ${logs}`);
+  const dbg = () => l.request('debug');
+  let before = (await dbg()).relLog.length;
+  const sStep0 = await l.settings();
+  cam.stepMove(1, 0); // passo fine: velocità minima per un attimo, poi ferma
+  await sleep(250);
+  let d = await dbg();
+  assert.deepStrictEqual(d.relLog.slice(before), [{ pan: 1, tilt: 0 }, { pan: 0, tilt: 0 }], JSON.stringify(d.relLog.slice(before)));
+  assert.ok(Math.abs(d.cur.pan - sStep0.pan) <= 1, 'il passo fine sposta meno di un grado');
+  // tenuto premuto: velocità chiesta, confermata finché si tiene, ferma al rilascio
+  before = d.relLog.length;
+  cam.move(0.12, -0.12);
+  await sleep(700);
+  d = await dbg();
+  const held = d.relLog.slice(before);
+  assert.ok(held.length >= 3 && held.every((v) => v.pan === 4 && v.tilt === -3), `velocità «Veloce» confermata: ${JSON.stringify(held)}`);
+  cam.move(0, 0);
+  await sleep(80);
+  d = await dbg();
+  assert.deepStrictEqual(d.rel.pan === 0 && d.rel.tilt === 0, true, 'ferma al rilascio');
+  // STOP durante il movimento; poi un richiamo parte solo con la camera ferma
+  cam.move(1, 0);
+  await sleep(80);
+  cam.stopAll();
+  await sleep(80);
+  d = await dbg();
+  assert.ok(d.rel.pan === 0 && d.rel.tilt === 0, 'STOP ferma il movimento a velocità');
+  cam.move(-1, 0);
+  await sleep(50);
+  await cam.gotoPosition({ kind: 'usb', pan: 30, tilt: 5, zoom: 200 }, 1);
+  d = await dbg();
+  assert.ok(d.rel.pan === 0 && d.rel.tilt === 0, 'il richiamo ferma prima il movimento a velocità');
+  assert.deepStrictEqual([d.cur.pan, d.cur.tilt, d.cur.zoom], [30, 5, 200]);
+  // PTZ Hub chiuso durante il movimento: la camera si ferma
+  cam.move(1, 1);
+  await sleep(80);
+  await cam.disconnect();
+  ok('movimento a velocità: passo fine, tenuto, STOP, richiamo e chiusura fermano la camera');
+
+  // --- camera che rifiuta i comandi a velocità: si torna ai passi assoluti
+  l = link('ptz', 'refuse');
+  cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING });
+  const logs2 = [];
+  cam.on('log', (m) => logs2.push(m));
+  await cam.connect();
+  await sleep(100);
+  const r0 = await l.settings();
+  cam.stepMove(1, 0); // rifiutato: avviso e passi assoluti da qui in poi
+  await sleep(100);
+  assert.ok(!cam._relOn() && logs2.some((m) => /rifiutato/.test(m)), logs2.join(' | '));
+  cam.stepMove(1, 0);
+  await sleep(100);
+  const r1 = await l.settings();
+  assert.strictEqual(r1.pan - r0.pan, 1, 'a passi assoluti dopo il rifiuto');
+  assert.strictEqual(cam.state, 'connected');
+  await cam.disconnect();
+  ok('comandi a velocità rifiutati: si continua a passi, la camera resta collegata');
+
+  // --- opzione «Movimento fluido» spenta: passi assoluti
+  l = link();
+  cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING, smooth: false });
+  await cam.connect();
+  await sleep(100);
+  assert.ok(!cam._relOn());
+  await cam.disconnect();
+  ok('movimento fluido spento dalle Impostazioni: passi assoluti');
+
   // --- camera senza comandi via USB
   l = link('noptz');
   cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING });
@@ -87,7 +163,7 @@ async function main() {
   ok('camera che via USB manda solo il video: «non accetta movimenti»');
 
   // --- camera staccata durante l'uso: «non risponde» e nuovi tentativi
-  l = link('unplug');
+  l = link('unplug', '0');
   cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING });
   await cam.connect();
   cam.move(1, 0);

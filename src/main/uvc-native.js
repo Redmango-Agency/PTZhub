@@ -138,6 +138,26 @@ class UvcNativeLink extends EventEmitter {
 
   settings() { return this.request('get', [], 3000); }
 
+  // comandi «a velocità» (pan e tilt relativi): quali assi li accettano, con la loro gamma
+  relCaps() { return this.request('relcaps', [], 3000); }
+
+  // muove pan e tilt alla velocità data (segno = verso, 0 = ferma) finché non arriva lo 0;
+  // se per 1,5 s non arriva un nuovo comando l'aiuto ferma la camera da solo
+  rel(values) {
+    const parts = [];
+    for (const k of ['pan', 'tilt']) {
+      if (values && Number.isFinite(Number(values[k]))) parts.push(`${k}=${Math.round(Number(values[k]))}`);
+    }
+    return this.request('rel', parts, 2000);
+  }
+
+  // aiuto bloccato: lo si chiude, al prossimo comando ne parte uno nuovo
+  kill() {
+    const p = this.proc;
+    if (!p) return;
+    try { p.kill(); } catch (_) { /* già uscito */ }
+  }
+
   // elenco delle camere con le capacità (verifica nelle Impostazioni e nel primo avvio)
   list() { return this.request('list', [], 15000); }
 

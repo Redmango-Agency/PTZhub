@@ -33,7 +33,7 @@ PTZ Hub ti dà anteprima dal vivo, frecce (lente o veloci), zoom e fuoco, e **in
 - **Inquadrature separate per ogni account** Windows o Mac, con esportazione e importazione.
 - **Richiamo rapido**: clic sulla miniatura, tasti `1`–`9` e `0`, oppure scorciatoie globali che funzionano anche con OBS, vMix o PowerPoint in primo piano.
 - **Anteprima video** RTSP (ffmpeg incluso) o USB, griglia dei terzi, rotazione 180° per montaggio a soffitto.
-- **Comandi manuali**: frecce a schermo e da tastiera (un clic sposta di un passo piccolo per centrare l'inquadratura, tenendo premuto la camera si muove; **Preciso** o Maiusc = lento), zoom, fuoco automatico/manuale, Home, **STOP** (`Esc` o `Spazio`).
+- **Comandi manuali**: frecce a schermo e da tastiera in un cerchio con Home al centro (un clic sposta di pochissimo per centrare l'inquadratura, tenendo premuto la camera si muove; **Lento** = movimento fine, **Veloce**, Maiusc = sempre lento), zoom, fuoco automatico/manuale, Home, **STOP** (`Esc` o `Spazio`).
 - **Pensato per la diretta**: finestra sempre in primo piano, stop di sicurezza al rilascio, alla perdita del fuoco e alla chiusura; STOP interrompe anche un richiamo in corso.
 - **Viste ridotte**: colonna **Compatta** sempre in primo piano, oppure linguetta **Laterale** agganciata al bordo sinistro o destro dello schermo che si apre al passaggio del mouse.
 - **Ricerca automatica**: trova le telecamere in rete (ONVIF WS-Discovery + scansione), rileva il protocollo e l'indirizzo del flusso video.

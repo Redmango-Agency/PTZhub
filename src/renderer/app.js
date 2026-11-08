@@ -248,11 +248,12 @@ function stopAll() {
 }
 
 // Cerchio con 4 tasti. Un clic = un passo piccolo, per centrare l'inquadratura; tenendo premuto
-// (oltre 350 ms) la camera si muove. Lento / Veloce per il movimento e, a parte, per lo zoom;
+// (oltre 350 ms) la camera si muove. Lento = movimento fine, per centrare (la velocità più bassa
+// della camera); Veloce = quello che prima era il lento. A parte Lento / Veloce per lo zoom;
 // sulla tastiera Maiusc = sempre lento. Se la camera non ha velocità variabili va alla sua.
 const DIR_VEC = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
 const HOLD_MS = 350;
-const SPEED = { move: { slow: 0.12, fast: 0.6 }, zoom: { slow: 0.15, fast: 0.7 } };
+const SPEED = { move: { slow: 0.02, fast: 0.12 }, zoom: { slow: 0.15, fast: 0.7 } };
 let dpadHold = null; // { btn, dir, timer, moving }
 
 const holdSpeed = (shift = false) => SPEED.move[settings.moveFast && !shift ? 'fast' : 'slow'];
@@ -1235,6 +1236,7 @@ function fillSettingsForm() {
   $('#sPass').value = c.pass || '';
   $('#sInvertPan').checked = !!c.invertPan;
   $('#sInvertTilt').checked = !!c.invertTilt;
+  $('#sUsbSmooth').checked = c.usbSmooth !== false;
   segSet($('#sSource'), p.source);
   $('#sWidth').value = String(p.width || 960);
   $('#sRtsp').value = p.rtspUrl || '';
@@ -1461,6 +1463,7 @@ function formCamera() {
     pass: $('#sPass').value,
     invertPan: $('#sInvertPan').checked,
     invertTilt: $('#sInvertTilt').checked,
+    usbSmooth: $('#sUsbSmooth').checked,
     usbDeviceId,
     usbLabel,
   };

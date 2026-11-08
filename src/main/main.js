@@ -81,7 +81,7 @@ const TEST_ENV = app.isPackaged ? {} : process.env;
 const UPDATE_REPO = updates.repoFromPackage(TEST_ENV.PTZ_UPDATE_REPO
   ? { ptzPanel: { updateRepo: TEST_ENV.PTZ_UPDATE_REPO } } : PKG);
 const UPDATE_API = TEST_ENV.PTZ_UPDATE_API || updates.API_BASE;
-const UPDATE_EVERY_MS = 24 * 60 * 60 * 1000;
+const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000; // ogni 6 ore (l'app resta aperta per giorni)
 const APP_VERSION = PKG.version; // come app.getVersion() nel programma installato, anche nei test
 let updateStatus = { state: UPDATE_REPO ? 'idle' : 'disabled' };
 let updateTimer = null;
@@ -123,6 +123,7 @@ function createCamera(cfg) {
       label: cfg.usbLabel || '',
       invertPan: !!cfg.invertPan,
       invertTilt: !!cfg.invertTilt,
+      smooth: cfg.usbSmooth !== false, // movimento a velocità, se la camera lo accetta (Windows)
       link: exe ? new UvcNativeLink({ exe }) : new UvcLink(),
     });
   }

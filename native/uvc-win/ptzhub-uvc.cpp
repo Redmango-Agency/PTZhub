@@ -9,6 +9,13 @@
 //   <id>\tset\tpan=1\ttilt=2\tzoom=3\tfocusDistance=4\tfocusMode=manual|continuous
 //                                      -> {"id":n,"ok":true,"value":{settings}}
 //   <id>\tget                          -> {"id":n,"ok":true,"value":{settings}}
+//   <id>\trelcaps                      -> {"id":n,"ok":true,"value":{"pan":{min,max,step},"tilt":{...}}}
+//      comandi «a velocità» (KSPROPERTY_CAMERACONTROL_PAN/TILT_RELATIVE): solo gli assi che la
+//      camera accetta; oggetto vuoto se nessuno
+//   <id>\trel\tpan=2\ttilt=-1          -> {"id":n,"ok":true,"value":null}
+//      la camera si muove alla velocità data (segno = verso, 0 = ferma) finché non arriva lo 0.
+//      Sicurezza: se per 1,5 s non arriva un nuovo «rel», l'aiuto la ferma da solo; la ferma anche
+//      quando PTZ Hub si chiude (fine dello stdin)
 //   <id>\tclose                        -> {"id":n,"ok":true,"value":null}
 // Errori: {"id":n,"ok":false,"name":"NotFoundError|NotReadableError|Error","message":"..."}
 //
@@ -26,6 +33,45 @@
 #include <vector>
 
 namespace {
+
+// KSPROPERTY_CAMERACONTROL_PAN_RELATIVE / TILT_RELATIVE (ksmedia.h): IAMCameraControl li passa al
+// driver come gli altri numeri di proprietà
+const long kRelIds[2] = {10, 11};
+const char* const kRelNames[2] = {"pan", "tilt"};
+const ULONGLONG kRelWatchdogMs = 1500;
+
+CRITICAL_SECTION g_lock;          // un solo comando alla volta verso la camera (stdin e controllo)
+IAMCameraControl* g_relCc = nullptr;  // camera aperta, per il controllo di sicurezza
+long g_relVal[2] = {0, 0};
+ULONGLONG g_relAt = 0;
+
+bool relMoving() { return g_relVal[0] != 0 || g_relVal[1] != 0; }
+
+// ferma il movimento a velocità (da chiamare con g_lock preso)
+void relStopLocked() {
+  if (g_relCc) {
+    for (int i = 0; i < 2; i++) {
+      if (g_relVal[i]) g_relCc->Set(kRelIds[i], 0, CameraControl_Flags_Manual);
+    }
+  }
+  g_relVal[0] = g_relVal[1] = 0;
+}
+
+// controllo di sicurezza: se PTZ Hub smette di confermare il movimento, la camera si ferma
+DWORD WINAPI relWatchdog(LPVOID) {
+  for (;;) {
+    Sleep(100);
+    EnterCriticalSection(&g_lock);
+    if (relMoving() && GetTickCount64() - g_relAt > kRelWatchdogMs) relStopLocked();
+    LeaveCriticalSection(&g_lock);
+  }
+  return 0;
+}
+
+struct Locked {
+  Locked() { EnterCriticalSection(&g_lock); }
+  ~Locked() { LeaveCriticalSection(&g_lock); }
+};
 
 std::string utf8(const wchar_t* w) {
   if (!w) return "";
@@ -302,8 +348,11 @@ int main() {
     return 1;
   }
   Camera cam;
+  InitializeCriticalSection(&g_lock);
+  CreateThread(nullptr, 0, relWatchdog, nullptr, 0, nullptr);
   std::string line;
   while (std::getline(std::cin, line)) {
+    Locked guard;
     if (!line.empty() && line.back() == '\r') line.pop_back();
     const std::vector<std::string> p = split(line, '\t');
     if (p.size() < 2 || !isNumber(p[0])) continue;
@@ -329,7 +378,10 @@ int main() {
     } else if (cmd == "open") {
       const std::string name = p.size() > 2 ? p[2] : "";
       const std::string vidpid = p.size() > 3 ? p[3] : "";
+      relStopLocked();
+      g_relCc = nullptr;
       HRESULT hr = cam.open(name, vidpid);
+      g_relCc = cam.cc();
       if (FAILED(hr)) {
         fail(id, errorName(hr), "camera USB non trovata o non apribile (" + hrText(hr) + ")");
         continue;
@@ -376,14 +428,66 @@ int main() {
         continue;
       }
       reply(id, settingsJson(cc));
+    } else if (cmd == "relcaps") {
+      if (!cam.isOpen() || !cam.cc()) {
+        fail(id, "InvalidStateError", "nessuna camera USB aperta");
+        continue;
+      }
+      std::string o = "{";
+      bool first = true;
+      for (int i = 0; i < 2; i++) {
+        long mn = 0, mx = 0, st = 0, df = 0, fl = 0;
+        if (FAILED(cam.cc()->GetRange(kRelIds[i], &mn, &mx, &st, &df, &fl))) continue;
+        if (mn == 0 && mx == 0) continue;
+        if (!first) o += ",";
+        first = false;
+        o += "\"" + std::string(kRelNames[i]) + "\":{\"min\":" + std::to_string(mn) + ",\"max\":" +
+             std::to_string(mx) + ",\"step\":" + std::to_string(st) + "}";
+      }
+      reply(id, o + "}");
+    } else if (cmd == "rel") {
+      if (!cam.isOpen() || !cam.cc()) {
+        fail(id, "InvalidStateError", "nessuna camera USB aperta");
+        continue;
+      }
+      HRESULT bad = S_OK;
+      for (size_t i = 2; i < p.size(); i++) {
+        const size_t eq = p[i].find('=');
+        if (eq == std::string::npos) continue;
+        const std::string k = p[i].substr(0, eq);
+        const double d = strtod(p[i].substr(eq + 1).c_str(), nullptr);
+        if (!std::isfinite(d)) continue;
+        for (int a = 0; a < 2; a++) {
+          if (k != kRelNames[a]) continue;
+          const long v = static_cast<long>(std::lround(d));
+          HRESULT hr = cam.cc()->Set(kRelIds[a], v, CameraControl_Flags_Manual);
+          if (SUCCEEDED(hr)) g_relVal[a] = v;
+          else if (SUCCEEDED(bad)) bad = hr;
+        }
+      }
+      g_relAt = GetTickCount64();
+      if (FAILED(bad)) {
+        relStopLocked();
+        fail(id, errorName(bad), "comando a velocità rifiutato dalla camera (" + hrText(bad) + ")");
+        continue;
+      }
+      reply(id, "null");
     } else if (cmd == "close") {
+      relStopLocked();
+      g_relCc = nullptr;
       cam.close();
       reply(id, "null");
     } else {
       fail(id, "TypeError", "comando sconosciuto: " + cmd);
     }
   }
-  cam.close();
+  {
+    // PTZ Hub chiuso (fine dello stdin): la camera non deve restare in movimento
+    Locked guard;
+    relStopLocked();
+    g_relCc = nullptr;
+    cam.close();
+  }
   CoUninitialize();
   return 0;
 }

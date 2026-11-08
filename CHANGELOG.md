@@ -4,6 +4,16 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 
 ## [Non ancora pubblicata]
 
+## [1.5.3] — 2026-11-08
+
+### Cambiato
+- **Movimento fine**: «Lento» ora muove la camera alla velocità più bassa, per centrare con precisione; «Veloce» è quello che prima era il lento. Vale per le frecce a schermo e da tastiera (Maiusc = sempre lento).
+- **Camera USB su Windows: movimento fluido** se la camera accetta i comandi a velocità (gli stessi del telecomando): niente più scatti di un grado alla volta, e un clic sposta di pochissimo. Se la camera non li accetta si continua a passi, e un avviso lo dice. Si può spegnere in Impostazioni › Telecamera › «Movimento fluido via USB». Per sicurezza la camera si ferma da sola se PTZ Hub smette di confermare il movimento o si chiude.
+- Controllo delle nuove versioni ogni 6 ore invece che una volta al giorno.
+
+### Corretto
+- **Inquadrature via USB che andavano solo in orizzontale**: alcune camere, mentre la testa si muove, scartano il secondo valore (l'altezza). Ora, se la camera si ferma senza essere arrivata, PTZ Hub rimanda un asse alla volta finché non è sul punto salvato: basta un clic.
+
 ## [1.5.2] — 2026-11-05
 
 ### Corretto
@@ -83,6 +93,7 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 - Ricerca automatica della telecamera e del flusso video, installer per Windows.
 
 [Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.5.0...HEAD
+[1.5.3]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.3
 [1.5.2]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.2
 [1.5.1]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.1
 [1.5.0]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.0
