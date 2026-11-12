@@ -68,7 +68,8 @@ Puoi inserire o cambiare utente e password anche dopo: **Impostazioni › Teleca
 - Premi **Camera collegata via USB?** e scegli la telecamera. Le telecamere «virtuali» (OBS Virtual Camera, Snap Camera e simili) non compaiono, perché non hanno una testa da muovere.
 - **Funziona solo se la telecamera accetta i comandi via USB.** Molte PTZ dal cavo USB mandano solo il video: in quel caso la verifica lo dice e conviene collegarla con il cavo di rete.
 - **Zoom, OBS e PTZ Hub insieme**: su Windows i comandi passano anche mentre Zoom o OBS usano la telecamera. L'anteprima invece la vede un solo programma alla volta: PTZ Hub lascia la precedenza a OBS e Zoom e mostra l'anteprima quando la camera è libera.
-- **Movimento a scatti?** In Impostazioni › Telecamera lascia attivo **Movimento fluido via USB**: se la telecamera lo accetta, il movimento è fluido e «Lento» sposta di pochissimo.
+- **Movimento a scatti?** In Impostazioni › Telecamera lascia attivo **Movimento fluido via USB**: se la telecamera lo accetta, «Veloce» tenuto premuto è fluido. Il clic e «Lento» vanno sempre a passi minimi (il più piccolo spostamento che la camera fa davvero), così restano precisi anche con le camere che partono solo a una velocità alta.
+- **Telecomando e PTZ Hub insieme**: se sposti la camera col telecomando, il richiamo di un'inquadratura da PTZ Hub la riporta comunque sul punto salvato (la camera può fare un piccolissimo scatto prima di arrivare: serve a farle accettare il comando). Per salvare un'inquadratura composta col telecomando usa **Salva anche la posizione**: funziona se la camera comunica via USB dove si trova; se dopo il richiamo non torna lì, ricomponila con le frecce di PTZ Hub e salvala di nuovo.
 
 ## Il video si vede ma la telecamera non si muove
 
@@ -84,10 +85,13 @@ Puoi inserire o cambiare utente e password anche dopo: **Impostazioni › Teleca
 
 ## Usare i comandi
 
-- **Cerchio con 4 frecce**: premi una volta per spostare di poco (per centrare), tieni premuto per muovere. **Home** al centro riporta la camera alla posizione di partenza.
-- **Lento / Veloce**: «Lento» per gli spostamenti precisi, «Veloce» per spostarsi molto. Anche lo zoom ha il suo Lento / Veloce.
+- **Cerchio con 4 frecce**: premi una volta per spostare di pochissimo (per centrare), tieni premuto per muovere. Il centro del cerchio non fa niente, così un clic sbagliato non sposta la camera in diretta.
+- **Home** (piccolo, sotto STOP) riporta la camera alla posizione di partenza con lo zoom al minimo: va **tenuto premuto mezzo secondo** (si riempie una barra); un clic da solo non fa niente. Da tastiera globale, pannello OBS, Stream Deck e indirizzi web Home parte subito, come prima.
+- **Lento / Veloce**: «Lento» per gli spostamenti precisi (con le camere USB va a piccoli passi regolari), «Veloce» per spostarsi molto. Anche lo zoom ha il suo Lento / Veloce.
 - **STOP** (o i tasti `Esc` e `Spazio`) ferma tutto, anche un'inquadratura in arrivo.
 - **Tastiera**: frecce per muovere (con Maiusc sempre lento), PagSu / PagGiù per lo zoom, `1`–`9` e `0` per le inquadrature.
+- **Griglia** (tasto in basso a destra sull'anteprima): linee dei terzi e mirino al centro esatto, per capire se la persona è davvero al centro. Mentre crei o modifichi un'inquadratura si accende da sola.
+- **Centra con un clic** (accanto a Griglia): attivalo e clicca sull'anteprima il punto da mettere al centro, per esempio il viso di chi parla: la camera lo porta al centro. Le prime volte corregge da sola con due o tre piccoli passi e impara quanto si sposta l'immagine a ogni livello di zoom, così le volte dopo è più precisa. In Regia si spegne da solo dopo ogni clic (un clic sull'anteprima non deve muovere la camera in diretta per sbaglio); nella modifica di un'inquadratura resta acceso. Serve l'anteprima video: se l'anteprima è spenta, o su Windows la camera USB è in uso da OBS o Zoom, i due tasti non ci sono e un messaggio lo dice.
 
 ## Le inquadrature
 

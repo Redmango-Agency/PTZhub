@@ -115,7 +115,7 @@ const PTZ_CAPS = {
 const START = { pan: 0, tilt: 0, zoom: 100, focusMode: 'continuous', focusDistance: 50 };
 
 // tempi accorciati: pan/tilt tutta la corsa (340) in 0,5 s alla velocità 1
-const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, retryMs: 60, confirmEveryMs: 20, confirmMs: 1500, resendGapMs: 30 };
+const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, retryMs: 60, confirmEveryMs: 20, confirmMs: 1500, resendGapMs: 30, kickGapMs: 20, stepSettleMs: 20 };
 
 async function makeCam(linkOpts, camOpts = {}) {
   const link = new FakeLink(linkOpts);
@@ -222,7 +222,8 @@ const onGrid = (v, min, step) => Math.abs(((v - min) / step) - Math.round((v - m
   assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [pos.pan, pos.tilt, pos.zoom]);
   const moves = (from) => link.applied.slice(from).filter((v) => v.pan !== undefined).length;
   assert.strictEqual(moves(before), 1, 'velocità 100%: un solo comando');
-  await cam.gotoPosition({ kind: 'usb', pan: -100, tilt: 0, zoom: 100, focusAuto: true }, 1);
+  // (tilt diverso da quello salvato: con un asse già al valore giusto partirebbe prima la «spinta»)
+  await cam.gotoPosition({ kind: 'usb', pan: -100, tilt: pos.tilt + 7, zoom: 100, focusAuto: true }, 1);
   before = link.applied.length;
   await cam.gotoPosition(pos, 0.5);
   assert.deepStrictEqual([link.cur.pan, link.cur.tilt, link.cur.zoom], [pos.pan, pos.tilt, pos.zoom]);

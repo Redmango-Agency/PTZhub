@@ -55,6 +55,8 @@ const DEFAULT_SETTINGS = {
     mode: 'full', // full | compact | side
     side: 'right', // left | right: bordo dello schermo per le viste ridotte
   },
+  // «Centra qui»: taratura misurata per camera (fattori per asse e fascia di zoom, vedi shared/center.js)
+  centerCal: {},
   bounds: null, // posizione e dimensioni della vista completa
 };
 

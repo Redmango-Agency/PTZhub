@@ -75,6 +75,12 @@
           <div class="badge active-badge" id="activeBadge"></div>
           <div class="badge edit-hint" data-i18n="ed.compose"></div>
           <span class="edit-cross" data-icon="cross"></span>
+          <!-- griglia e «Centra con un clic» (vedi src/shared/center.js) -->
+          <div class="pv-tools" id="pvTools">
+            <span class="pv-note" id="pvNote"></span>
+            <button type="button" class="pv-btn" id="btnGrid" data-i18n-title="ctr.gridTitle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span data-i18n="ctr.grid"></span></button>
+            <button type="button" class="pv-btn" id="btnCenter" data-i18n-title="ctr.centerTitle"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg><span data-i18n="ctr.center"></span></button>
+          </div>
           <div class="edit-note" id="editNote"></div>
         </div>
       </section>
@@ -98,10 +104,13 @@
               <button type="button" class="wedge left" data-dir="left" data-i18n-label="ctl.left"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5.5L8.5 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
               <button type="button" class="wedge down" data-dir="down" data-i18n-label="ctl.down"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 9l6.5 6.5L18.5 9" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
-            <button type="button" id="btnHome" class="ring-home" data-i18n-title="ctl.homeTitle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7M6.5 9.5V20h11V9.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="ctl.home"></span></button>
+            <div class="ring-hub" aria-hidden="true"></div>
           </div>
           <p class="dp-hint" data-i18n="ctl.dpadHint"></p>
           <button id="btnStop" class="btn-stop" data-i18n="ctl.stop" data-i18n-title="ctl.stopTitle"></button>
+          <div class="home-row">
+            <button type="button" id="btnHome" class="home-hold" data-i18n-title="ctl.homeTitle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7M6.5 9.5V20h11V9.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="ctl.homeHold"></span></button>
+          </div>
         </section>
 
         <section class="card ctl-card">
@@ -718,6 +727,7 @@
 
   <script src="../shared/i18n.js"></script>
   <script src="../shared/uvc-caps.js"></script>
+  <script src="../shared/center.js"></script>
   <script src="common.js"></script>
   <script src="app.js"></script>
 </body>

@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('ptz', {
 
   cmd: (name, ...args) => ipcRenderer.send('cam:cmd', { name, args }),
   getPosition: () => ipcRenderer.invoke('cam:getPosition'),
+  centerStep: (ox, oy, aspect) => ipcRenderer.invoke('cam:centerStep', ox, oy, aspect),
+  centerLearn: (m) => ipcRenderer.invoke('cam:centerLearn', m),
   recallPreset: (id, speed, opts) => ipcRenderer.invoke('cam:recallPreset', id, speed, opts),
   setActive: (id) => ipcRenderer.send('cam:setActive', id),
   setEditing: (on) => ipcRenderer.send('ui:editing', on),

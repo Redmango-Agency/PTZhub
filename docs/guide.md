@@ -68,7 +68,8 @@ You can also enter or change the user name and password later: **Settings › Ca
 - Press **Camera connected over USB?** and choose the camera. “Virtual” cameras (OBS Virtual Camera, Snap Camera and similar) are not listed, because they have no head to move.
 - **It only works if the camera accepts commands over USB.** Many PTZ cameras only send video over USB: the check tells you, and in that case connect it with the network cable.
 - **Zoom, OBS and PTZ Hub together**: on Windows the controls work even while Zoom or OBS use the camera. The preview can be seen by one program at a time: PTZ Hub gives way to OBS and Zoom and shows the preview when the camera is free.
-- **Jerky movement?** In Settings › Camera keep **Smooth movement over USB** on: if the camera supports it, movement is smooth and “Slow” moves just a little.
+- **Jerky movement?** In Settings › Camera keep **Smooth movement over USB** on: if the camera supports it, holding “Fast” is smooth. A click and “Slow” always move in the smallest steps (the smallest move the camera really makes), so they stay precise even with cameras that only start at a high speed.
+- **Remote control and PTZ Hub together**: if you move the camera with its remote, recalling a preset from PTZ Hub still brings it back to the saved spot (the camera may make a tiny jump first: it helps it accept the command). To save a shot framed with the remote use **Save the position too**: it works if the camera reports over USB where it is; if after a recall it does not go back there, frame it again with the PTZ Hub arrows and save it again.
 
 ## I see the video but the camera doesn't move
 
@@ -84,10 +85,13 @@ You can also enter or change the user name and password later: **Settings › Ca
 
 ## Using the controls
 
-- **Circle with 4 arrows**: press once to move a little (to centre), hold to move. **Home** in the middle takes the camera back to its start position.
-- **Slow / Fast**: “Slow” for precise moves, “Fast” to travel far. Zoom has its own Slow / Fast.
+- **Circle with 4 arrows**: press once to move a tiny bit (to centre), hold to move. The middle of the circle does nothing, so a wrong click never moves the camera on air.
+- **Home** (small, under STOP) takes the camera back to its start position with the zoom all the way out: **hold it for half a second** (a bar fills up); a single click does nothing. From global keys, the OBS dock, Stream Deck and web addresses Home starts straight away, as before.
+- **Slow / Fast**: “Slow” for precise moves (USB cameras move in small regular steps), “Fast” to travel far. Zoom has its own Slow / Fast.
 - **STOP** (or the `Esc` and `Space` keys) stops everything, even a preset on its way.
 - **Keyboard**: arrows to move (Shift = always slow), Page Up / Page Down to zoom, `1`–`9` and `0` for presets.
+- **Grid** (button at the bottom right of the preview): rule-of-thirds lines and a crosshair at the exact centre, to see whether the person is really centred. It turns on by itself while you create or edit a preset.
+- **Click to centre** (next to Grid): turn it on and click the point of the preview you want in the centre, for example the speaker's face: the camera brings it there. The first times it corrects itself with two or three small steps and learns how much the picture moves at each zoom level, so it gets more precise afterwards. In the Control room it turns off after each click (a click on the preview must never move the camera on air by mistake); while editing a preset it stays on. It needs the video preview: if the preview is off, or on Windows the USB camera is in use by OBS or Zoom, the two buttons are not there and a message says so.
 
 ## Presets
 

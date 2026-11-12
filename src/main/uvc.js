@@ -6,10 +6,15 @@
 // (uvc-link.js); questo driver ha la stessa interfaccia di quelli VISCA e ONVIF verso l'hub e gli
 // manda soltanto valori assoluti.
 //
-// Le camere USB accettano solo posizioni assolute: il movimento continuo (joystick, frecce,
+// Le camere USB accettano posizioni assolute: il movimento continuo (joystick, frecce,
 // Stream Deck, pannello OBS) si ottiene spostando la posizione a piccoli passi, 25 volte al secondo,
 // in base alla velocità. STOP ferma subito gli incrementi. Un comando alla volta verso la camera:
 // se è ancora occupata con il precedente si manda solo l'ultimo valore.
+//
+// Frecce (dalla 1.5.6): un clic = il passo assoluto più piccolo che sposta davvero la camera
+// (verificato rileggendo la posizione: se non cambia il passo cresce e il valore buono si ricorda);
+// tenuta in «Lento» = gli stessi passi minimi a ritmo regolare, quindi più lenta della velocità
+// minima della camera; «Veloce» = comando a velocità continuo, se la camera lo accetta.
 
 const { EventEmitter } = require('events');
 const { t } = require('../shared/i18n');
@@ -28,10 +33,15 @@ const TIMING = {
   confirmMs: 20000, // per quanto al massimo (le camere lente impiegano qualche secondo)
   maxResend: 8, // quante volte si rimanda un asse se la camera si è fermata altrove
   resendGapMs: 600, // tra un rinvio e l'altro (la testa deve avere il tempo di partire)
-  relPulseMs: 120, // passo fine col movimento a velocità: la camera si muove piano per un attimo
   relKeepMs: 400, // durante il movimento a velocità si conferma il comando (l'aiuto ferma dopo 1,5 s)
   retryMs: 3000, // camera scollegata o occupata: si riprova ogni 3 s
   resyncAfterMs: 1500, // comando manuale dopo 1,5 s senza comandi nostri: prima si rilegge la posizione vera
+  kickGapMs: 250, // richiamo: pausa tra il valore «spinta» (un passo accanto) e quello giusto
+  slowMaxV: 0.04, // sotto questa velocità (Lento, Maiusc) la tenuta va a passi minimi
+  slowStepMs: 600, // Lento tenuto premuto: un passo minimo ogni 0,6 s
+  stepSettleMs: 250, // clic: dopo il passo si aspetta prima di rileggere se la camera si è mossa
+  stepGrowMax: 4, // clic: quante volte al massimo il passo raddoppia se la camera non si muove
+  stepIncMaxFrac: 0.02, // ... fino al 2% della corsa
 };
 
 const AXES = ['pan', 'tilt', 'zoom'];
@@ -92,7 +102,13 @@ class UvcCamera extends EventEmitter {
     this.relBusy = false;
     this.relDirty = false;
     this.relKeep = null;
-    this.relPulse = null;
+    // passi minimi (clic e Lento tenuto): passo che ha davvero mosso la camera, per asse
+    this.minInc = {};
+    this.slowTok = null; // tenuta in Lento in corso (gettone: cambia per fermarla)
+    this.slowDir = null;
+    this.lastStepAt = 0;
+    this.stepQueue = null; // clic in fila
+    this.stepGrewLogged = false;
     this.retryTimer = null;
     this.lastErrorLog = 0;
     this._onEnded = () => this._lost(t('uvc.unplugged'));
@@ -276,6 +292,7 @@ class UvcCamera extends EventEmitter {
   // ---- movimento continuo --------------------------------------------------
 
   _stopMotion() {
+    this._slowStop();
     this.vel = { x: 0, y: 0, z: 0, f: 0 };
     clearInterval(this.loopTimer);
     this.loopTimer = null;
@@ -379,10 +396,20 @@ class UvcCamera extends EventEmitter {
     if (this.opts.invertTilt) y = -y;
     x = this.axes.pan ? clamp(Number(x) || 0, -1, 1) : 0;
     y = this.axes.tilt ? clamp(Number(y) || 0, -1, 1) : 0;
+    if ((x || y) && Math.max(Math.abs(x), Math.abs(y)) < this.tm.slowMaxV) {
+      // Lento: passi minimi a ritmo regolare. Non dipende dalla velocità minima della camera
+      // (sulla Tenveo troppo alta) né dalla soglia sotto cui un comando a velocità non la muove
+      if (this.relWant.pan || this.relWant.tilt || this.relCur.pan || this.relCur.tilt) this._relDrive(0, 0);
+      this.vel.x = 0;
+      this.vel.y = 0;
+      if (!this.slowTok) this._interrupt();
+      this._slowStart(Math.sign(x), Math.sign(y));
+      this._kick();
+      return;
+    }
+    this._slowStop();
     if (this._relOn()) {
-      // la camera si muove da sola alla velocità data: niente passi assoluti
-      clearTimeout(this.relPulse);
-      this.relPulse = null;
+      // Veloce: la camera si muove da sola alla velocità data, niente passi assoluti
       this.vel.x = 0;
       this.vel.y = 0;
       if (x || y) this._interrupt();
@@ -396,37 +423,127 @@ class UvcCamera extends EventEmitter {
     this._kick();
   }
 
-  // Passo piccolo (freccia premuta e rilasciata): il minimo spostamento della camera,
-  // un passo della sua griglia (almeno 1/1000 della corsa), partendo dalla posizione vera
+  // Passo piccolo (freccia premuta e rilasciata): il più piccolo spostamento assoluto che muove
+  // davvero la camera, partendo dalla posizione vera. Niente impulso a velocità: sulla Tenveo un
+  // impulso breve alla velocità minima non la faceva partire.
   async stepMove(dx, dy) {
     if (!this.ready) return;
     if (this.opts.invertPan) dx = -dx;
     if (this.opts.invertTilt) dy = -dy;
     this._stopMotion();
-    this._interrupt();
-    if (this._relOn()) {
-      // passo fine: la camera si muove alla velocità più bassa per un attimo, poi si ferma
-      clearTimeout(this.relPulse);
-      this._relDrive(this._relSpeed('pan', Math.sign(dx) * 1e-6), this._relSpeed('tilt', Math.sign(dy) * 1e-6));
-      this.relPulse = setTimeout(() => {
-        this.relPulse = null;
-        this._relDrive(0, 0);
-      }, this.tm.relPulseMs);
-      return;
-    }
+    // clic rapidi: i passi vanno in fila (ognuno si fa), il primo prende il posto di un richiamo
+    if (!this.stepQueue) this._interrupt();
     const g = this.gen;
+    const alive = () => this.gen === g && this.ready;
+    const run = (this.stepQueue || Promise.resolve()).then(() => {
+      if (!alive()) return null;
+      this.lastStepAt = Date.now();
+      return this._stepOnce(dx, dy, alive);
+    });
+    const q = run.catch(() => {}).then(() => { if (this.stepQueue === q) this.stepQueue = null; });
+    this.stepQueue = q;
+    await run;
+  }
+
+  // passo minimo di un asse: quello che ha già mosso la camera, altrimenti un passo della sua
+  // griglia (almeno 1/1000 della corsa)
+  _minInc(k) {
+    const a = this.axes[k];
+    if (num(this.minInc[k])) return this.minInc[k];
+    return Math.max(a.step || 0, (a.max - a.min) / 1000);
+  }
+
+  // Un passo minimo verso dx, dy (segni). Si legge la posizione prima e dopo: se la camera non
+  // si è spostata il passo raddoppia (fino al 2% della corsa) e si riprova subito; il passo che
+  // funziona resta per i clic successivi. alive(): falso se nel frattempo è arrivato altro.
+  async _stepOnce(dx, dy, alive) {
+    if (this.relCur.pan || this.relCur.tilt || this.relBusy) await this._relHalt();
+    if (!alive()) return;
     if (this.resyncing || this._needsResync()) await this._resync();
-    if (g !== this.gen || !this.ready) return; // nel frattempo è arrivato un altro comando
-    const out = {};
-    for (const [k, v] of [['pan', dx], ['tilt', dy]]) {
-      const a = this.axes[k];
-      if (!a || !v) continue;
-      const inc = Math.max(a.step || 0, (a.max - a.min) / 1000);
-      const base = num(this.last[k]) ? this.last[k] : (num(this.pos[k]) ? this.pos[k] : (a.min + a.max) / 2);
-      const q = quantize(a, base + Math.sign(v) * inc);
-      if (q !== base) { out[k] = q; this.pos[k] = q; }
+    if (!alive()) return;
+    await this._idle();
+    if (!alive()) return;
+    let pre = null;
+    try { pre = await this.link.settings(); } catch (_) { pre = null; }
+    if (!alive()) return;
+    let dirs = [['pan', dx], ['tilt', dy]].filter(([k, v]) => this.axes[k] && v);
+    if (pre) {
+      // la camera è lontana dall'ultimo valore nostro (telecomando, OBS): si parte da dov'è
+      for (const k of ['pan', 'tilt']) {
+        if (!this.axes[k] || !num(pre[k]) || !num(this.last[k])) continue;
+        if (Math.abs(pre[k] - this.last[k]) > 2 * this._minInc(k)) {
+          this.pos[k] = pre[k];
+          this.last[k] = quantize(this.axes[k], pre[k]);
+          this.ptSync = true;
+        }
+      }
     }
-    if (Object.keys(out).length) this._send(this._withPair(out));
+    for (let tries = 0; dirs.length; tries += 1) {
+      const out = {};
+      for (const [k, v] of dirs) {
+        const a = this.axes[k];
+        const base = num(this.last[k]) ? this.last[k] : (num(this.pos[k]) ? this.pos[k] : (a.min + a.max) / 2);
+        const q = quantize(a, base + Math.sign(v) * this._minInc(k));
+        if (q !== base) { out[k] = q; this.pos[k] = q; }
+      }
+      if (!Object.keys(out).length) return; // a fine corsa
+      this._send(this._withPair(out));
+      // eslint-disable-next-line no-await-in-loop
+      await this._idle();
+      if (!pre || tries >= this.tm.stepGrowMax) return;
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(this.tm.stepSettleMs);
+      if (!alive()) return;
+      let st = null;
+      // eslint-disable-next-line no-await-in-loop
+      try { st = await this.link.settings(); } catch (_) { st = null; }
+      if (!alive() || !st) return;
+      const stuck = Object.keys(out).filter((k) => num(st[k]) && num(pre[k]) && st[k] === pre[k]);
+      // da qui si parte dalla posizione letta (la camera può arrotondare al suo passo vero)
+      for (const k of Object.keys(out)) {
+        if (num(st[k])) { this.pos[k] = st[k]; this.last[k] = quantize(this.axes[k], st[k]); }
+      }
+      if (!stuck.length) return;
+      for (const k of stuck) {
+        const a = this.axes[k];
+        const cap = Math.max(a.step || 0, (a.max - a.min) * this.tm.stepIncMaxFrac);
+        this.minInc[k] = Math.min(cap, this._minInc(k) * 2);
+      }
+      if (!this.stepGrewLogged) {
+        this.stepGrewLogged = true;
+        this.emit('log', t('uvc.stepGrew'));
+      }
+      dirs = dirs.filter(([k]) => stuck.includes(k));
+    }
+  }
+
+  // ---- Lento tenuto premuto: passi minimi a ritmo regolare ------------------
+
+  _slowStart(sx, sy) {
+    this.slowDir = { x: sx, y: sy };
+    if (this.slowTok) return;
+    const tok = {};
+    this.slowTok = tok;
+    const alive = () => this.slowTok === tok && this.ready;
+    (async () => {
+      while (alive()) {
+        const wait = this.lastStepAt + this.tm.slowStepMs - Date.now();
+        if (wait > 0) {
+          // eslint-disable-next-line no-await-in-loop
+          await sleep(Math.min(wait, this.tm.slowStepMs));
+          continue;
+        }
+        this.lastStepAt = Date.now();
+        const { x, y } = this.slowDir;
+        // eslint-disable-next-line no-await-in-loop
+        try { await this._stepOnce(x, y, alive); } catch (_) { /* camera persa: ci pensa _lost */ }
+      }
+    })();
+  }
+
+  _slowStop() {
+    this.slowTok = null;
+    this.slowDir = null;
   }
 
   // z in [-1, 1]: >0 stretto (tele), <0 largo
@@ -467,8 +584,6 @@ class UvcCamera extends EventEmitter {
   stopAll() {
     this.gen += 1; // ferma anche un richiamo o Home in corso
     this._stopMotion();
-    clearTimeout(this.relPulse);
-    this.relPulse = null;
     if (this.relWant.pan || this.relWant.tilt || this.relCur.pan || this.relCur.tilt) this._relDrive(0, 0);
     if (this.absMoving) this._halt();
   }
@@ -552,8 +667,6 @@ class UvcCamera extends EventEmitter {
 
   // ferma subito il movimento a velocità e aspetta la risposta (prima di un comando assoluto)
   async _relHalt() {
-    clearTimeout(this.relPulse);
-    this.relPulse = null;
     clearInterval(this.relKeep);
     this.relKeep = null;
     this.relWant = { pan: 0, tilt: 0 };
@@ -565,8 +678,6 @@ class UvcCamera extends EventEmitter {
   }
 
   _relReset() {
-    clearTimeout(this.relPulse);
-    this.relPulse = null;
     clearInterval(this.relKeep);
     this.relKeep = null;
     this.relWant = { pan: 0, tilt: 0 };
@@ -576,28 +687,55 @@ class UvcCamera extends EventEmitter {
 
   // ---- posizioni assolute: inquadrature e Home ----------------------------
 
-  // Porta la camera su target ({ pan, tilt, zoom } già sulla sua griglia) con UN comando assoluto:
-  // si va sempre alla posizione salvata, qualunque sia quella di partenza (niente passi calcolati
-  // dalla posizione attuale, che con il telecomando o un comando perso può essere sbagliata).
+  // Porta la camera su target ({ pan, tilt, zoom } già sulla sua griglia) con la posizione
+  // assoluta salvata, sempre con TUTTI gli assi, qualunque sia la posizione di partenza (niente
+  // passi calcolati dalla posizione attuale, che con il telecomando può essere sbagliata).
+  //
+  // Spinta: molte camere USB ignorano un valore assoluto uguale a quello che hanno già (l'ultimo
+  // ricevuto via USB), anche se nel frattempo il telecomando le ha spostate, e spesso via USB
+  // continuano a dichiarare quel valore. Per gli assi che la camera (o PTZ Hub) dà già sul punto
+  // giusto si manda prima il valore accanto (un passo della griglia) e poco dopo quello giusto:
+  // così la camera vede due comandi diversi e si muove davvero.
+  //
   // Poi si controlla che la camera ci arrivi: alcune camere USB scartano un comando mentre la testa
-  // si muove, quindi se la camera è ferma lontano dal punto giusto il valore si rimanda.
+  // si muove, quindi se la camera è ferma lontano dal punto giusto il valore si rimanda (con la spinta).
   async _goAbsolute(target, check) {
     const keys = Object.keys(target);
     if (!keys.length) return;
     check();
-    if (this.relCur.pan || this.relCur.tilt || this.relBusy || this.relPulse) await this._relHalt();
+    if (this.relCur.pan || this.relCur.tilt || this.relBusy) await this._relHalt();
     await this._idle(); // prima finisce quello che era già partito
     check();
-    Object.assign(this.pos, target);
     const tol = (k) => {
       const a = this.axes[k];
       return Math.max(a.step || 0, (a.max - a.min) * 0.002, 1e-6);
     };
+    const near = (v, k) => num(v) && Math.abs(v - target[k]) <= tol(k);
+    // valore accanto a quello giusto: un passo della griglia, verso il centro della corsa
+    const kickOf = (k) => {
+      const a = this.axes[k];
+      const inc = a.step > 0 ? a.step : (a.max - a.min) / 1000;
+      const up = target[k] + inc <= a.max && (target[k] - inc < a.min || target[k] <= (a.min + a.max) / 2);
+      return quantize(a, target[k] + (up ? inc : -inc));
+    };
+    let pre = null;
+    try { pre = await this.link.settings(); } catch (_) { pre = null; }
+    check();
+    const kick = keys.filter((k) => near(this.last[k], k) || (pre && near(pre[k], k)));
     const missing = (st) => keys.filter((k) => num(st[k]) && Math.abs(st[k] - target[k]) > tol(k));
     const sameAs = (a, b) => keys.every((k) => a[k] === b[k]);
     const deadline = Date.now() + this.tm.confirmMs;
+    Object.assign(this.pos, target);
     this.absMoving = true;
     try {
+      if (kick.length) {
+        const first = { ...target };
+        for (const k of kick) first[k] = kickOf(k);
+        this._send(first);
+        await this._idle();
+        await sleep(this.tm.kickGapMs);
+        check();
+      }
       this._send({ ...target });
       await this._idle();
       let prev = null;
@@ -611,21 +749,28 @@ class UvcCamera extends EventEmitter {
         check();
         if (!st) return; // la camera non comunica la posizione
         const miss = missing(st);
-        if (!miss.length) return; // arrivata
+        if (!miss.length) return; // arrivata (o così dice la camera)
         if (Date.now() >= deadline) {
           this.emit('log', t('uvc.notArrived'));
           return;
         }
         // camera ferma ma non sul punto giusto: alcune camere USB, mentre la testa si muove,
-        // scartano i valori arrivati subito dopo il primo (va in orizzontale ma non in altezza).
-        // Si rimanda UN asse alla volta, a turno tra quelli che mancano.
+        // scartano i valori arrivati subito dopo il primo (va in orizzontale ma non in altezza),
+        // altre ignorano il valore che hanno già. Si rimanda UN asse alla volta, a turno tra quelli
+        // che mancano, passando dal valore accanto.
         if (prev && sameAs(st, prev) && resent < this.tm.maxResend && Date.now() - resentAt >= this.tm.resendGapMs) {
           const k = miss[resent % miss.length];
           resent += 1;
-          resentAt = Date.now();
+          this._send({ [k]: kickOf(k) });
+          // eslint-disable-next-line no-await-in-loop
+          await this._idle();
+          // eslint-disable-next-line no-await-in-loop
+          await sleep(this.tm.kickGapMs);
+          check();
           this._send({ [k]: target[k] });
           // eslint-disable-next-line no-await-in-loop
           await this._idle();
+          resentAt = Date.now();
           prev = null;
           // eslint-disable-next-line no-await-in-loop
           await sleep(this.tm.confirmEveryMs);
@@ -681,24 +826,29 @@ class UvcCamera extends EventEmitter {
     });
   }
 
+  // Salvataggio: si rilegge SEMPRE la posizione dalla camera (mai i valori ricordati da PTZ Hub).
+  // Se la camera non la comunica si dà errore, invece di salvare coordinate forse vecchie.
   async getPosition() {
     this._ensureReady();
+    if (this.relCur.pan || this.relCur.tilt || this.relBusy) await this._relHalt();
     await this._idle();
     let s = null;
-    try { s = await this.link.settings(); } catch (_) { /* si usano i valori mandati */ }
+    try { s = await this.link.settings(); } catch (_) { s = null; }
     const out = { kind: 'usb' };
     for (const k of AXES) {
       const a = this.axes[k];
       if (!a) continue;
-      out[k] = s && num(s[k]) ? s[k] : quantize(a, this.pos[k]);
-      if (!this.loopTimer) { this.pos[k] = out[k]; this.last[k] = out[k]; }
+      if (!s || !num(s[k])) throw new Error(t('uvc.noRead'));
+      out[k] = s[k];
+      if (!this.loopTimer && !this.slowTok) { this.pos[k] = out[k]; this.last[k] = quantize(a, out[k]); }
     }
-    const mode = s && typeof s.focusMode === 'string' ? s.focusMode : (this.focusAuto ? 'continuous' : 'manual');
-    const dist = s && num(s.focusDistance) ? s.focusDistance : this.pos.focusDistance;
+    const mode = typeof s.focusMode === 'string' ? s.focusMode : (this.focusAuto ? 'continuous' : 'manual');
+    const dist = num(s.focusDistance) ? s.focusDistance : this.pos.focusDistance;
     // fuoco fisso (manuale o «rapido») salvato come distanza, se la camera la comunica
     const manual = mode === 'manual' || (mode === 'single-shot' && !!this.axes.focusDistance);
     out.focusAuto = !(manual && this.axes.focusDistance && num(dist));
     out.focus = out.focusAuto ? null : dist;
+    this.focusAuto = !manual;
     return out;
   }
 
@@ -714,21 +864,22 @@ class UvcCamera extends EventEmitter {
     }
     if (!Object.keys(target).length) throw new Error(t('uvc.noPtz'));
     await this._goAbsolute(target, check); // la camera USB va alla sua velocità: speed01 non serve
-    // fuoco alla fine, come la camera era al salvataggio
-    const f = {};
+    // fuoco alla fine, come la camera era al salvataggio. Si manda sempre: col tasto FOCUS del
+    // telecomando la camera può essere passata in manuale (o in automatico) senza che PTZ Hub lo sappia
     const modes = this.axes.focusModes;
     if (pos.focusAuto === false && num(pos.focus) && this.axes.focusDistance) {
-      f.focusMode = 'manual';
-      f.focusDistance = quantize(this.axes.focusDistance, pos.focus);
-      this.pos.focusDistance = f.focusDistance;
-      this.focusAuto = false;
-    } else if (pos.focusAuto !== false && modes.includes('continuous') && !this.focusAuto) {
-      f.focusMode = 'continuous';
-      this.focusAuto = true;
-    }
-    if (Object.keys(f).length) {
+      const d = quantize(this.axes.focusDistance, pos.focus);
       check();
-      this._send(f);
+      this._send({ focusMode: 'manual', focusDistance: d });
+      this.pos.focusDistance = d;
+      this.last.focusDistance = d;
+      this.focusAuto = false;
+      await this._idle();
+    } else if (pos.focusAuto === true && modes.includes('continuous')) {
+      // (senza focusAuto, come per «Centra qui», il fuoco non si tocca)
+      check();
+      this._send({ focusMode: 'continuous' });
+      this.focusAuto = true;
       await this._idle();
     }
   }

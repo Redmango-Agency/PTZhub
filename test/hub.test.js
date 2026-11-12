@@ -89,6 +89,27 @@ function makeHub(cam) {
   assert.throws(() => hub.stepMove('obliquo'));
   ok('passo piccolo: impulso minimo con stop, oppure passo della camera USB');
 
+  // 3c. comandi manuali dall'app: interrompono il richiamo in corso (anche VISCA/ONVIF) e
+  //     un impulso da Stream Deck non li ferma a metà
+  cam = mockCam();
+  hub = makeHub(cam);
+  let rp = hub.recallId('b');
+  await sleep(40);
+  hub.manualMove(0.12, 0);
+  assert.strictEqual(await rp, null, 'il richiamo è superato');
+  assert.ok(!cam.log.includes('zoom-to 2'), cam.log.join(' | '));
+  hub.manualMove(0, 0);
+  hub.nudge('left', 100);
+  hub.manualMove(0, 0.12);
+  await sleep(180);
+  assert.strictEqual(cam.log[cam.log.length - 1], 'move 0 0.12', `l'impulso non ferma il movimento a mano: ${cam.log.join(' | ')}`);
+  rp = hub.recallId('a');
+  await sleep(40);
+  hub.manualZoom(0.7);
+  assert.strictEqual(await rp, null);
+  hub.manualZoom(0);
+  ok('comandi manuali dall’app: interrompono il richiamo, l’impulso non li ferma');
+
   // 4. STOP durante un richiamo: i passi mancanti non partono e l'inquadratura non diventa attiva
   cam = mockCam();
   hub = makeHub(cam);

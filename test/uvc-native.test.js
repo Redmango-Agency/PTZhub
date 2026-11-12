@@ -11,9 +11,16 @@ let pass = 0;
 const ok = (name) => { pass += 1; console.log(`  ok  ${name}`); };
 
 const FAKE = path.join(__dirname, 'fake-uvc-helper.js');
-const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, recallFullS: 0.3, retryMs: 80 };
+const TIMING = { tickMs: 10, ptFullS: 0.5, zoomFullS: 0.5, focusFullS: 0.5, retryMs: 80, stepSettleMs: 20, kickGapMs: 30 };
+
+function linkWith(env) {
+  for (const k of Object.keys(process.env)) if (k.startsWith('FAKE_UVC')) delete process.env[k];
+  Object.assign(process.env, { FAKE_UVC: 'ptz', FAKE_UVC_REL: '1', ...env });
+  return new UvcNativeLink({ exe: process.execPath, args: [FAKE] });
+}
 
 function link(mode = 'ptz', rel = '1') {
+  for (const k of Object.keys(process.env)) if (k.startsWith('FAKE_UVC')) delete process.env[k];
   process.env.FAKE_UVC = mode; // ereditate dal processo dell'aiuto
   process.env.FAKE_UVC_REL = rel;
   return new UvcNativeLink({ exe: process.execPath, args: [FAKE] });
@@ -66,13 +73,12 @@ async function main() {
   cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING });
   await cam.connect();
   const s0 = await l.settings();
-  cam.stepMove(1, 0);
-  await sleep(60);
+  await cam.stepMove(1, 0);
   let s1 = await l.settings();
   assert.deepStrictEqual([s1.pan - s0.pan, s1.tilt - s0.tilt], [1, 0]);
   cam.stepMove(0, -1);
-  cam.stepMove(0, -1);
-  await sleep(60);
+  await cam.stepMove(0, -1); // clic rapidi: i passi vanno in fila, ognuno si fa
+  await sleep(20);
   s1 = await l.settings();
   assert.deepStrictEqual([s1.pan - s0.pan, s1.tilt - s0.tilt], [1, -2]);
   await cam.disconnect();
@@ -90,11 +96,11 @@ async function main() {
   const dbg = () => l.request('debug');
   let before = (await dbg()).relLog.length;
   const sStep0 = await l.settings();
-  cam.stepMove(1, 0); // passo fine: velocità minima per un attimo, poi ferma
-  await sleep(250);
+  await cam.stepMove(1, 0); // clic: un passo assoluto minimo, niente impulso a velocità
+  await sleep(50);
   let d = await dbg();
-  assert.deepStrictEqual(d.relLog.slice(before), [{ pan: 1, tilt: 0 }, { pan: 0, tilt: 0 }], JSON.stringify(d.relLog.slice(before)));
-  assert.ok(Math.abs(d.cur.pan - sStep0.pan) <= 1, 'il passo fine sposta meno di un grado');
+  assert.deepStrictEqual(d.relLog.slice(before), [], JSON.stringify(d.relLog.slice(before)));
+  assert.strictEqual(d.cur.pan - sStep0.pan, 1, 'il clic sposta di un passo della griglia');
   // tenuto premuto: velocità chiesta, confermata finché si tiene, ferma al rilascio
   before = d.relLog.length;
   cam.move(0.12, -0.12);
@@ -125,6 +131,134 @@ async function main() {
   await cam.disconnect();
   ok('movimento a velocità: passo fine, tenuto, STOP, richiamo e chiusura fermano la camera');
 
+  // --- casi della Tenveo vera (1.5.6) ---------------------------------------------------------
+  const T2 = { ...TIMING, confirmEveryMs: 30, confirmMs: 2500, resendGapMs: 60, kickGapMs: 60, stepSettleMs: 60, slowStepMs: 200 };
+  const real = async (env, extra = {}) => {
+    const lk = linkWith(env);
+    const c = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: lk, timing: { ...T2, ...extra } });
+    const lg = [];
+    c.on('log', (m) => lg.push(m));
+    await c.connect();
+    await sleep(80);
+    return { lk, c, lg, phys: async () => (await lk.request('debug')).phys };
+  };
+  const at = (ph, p) => [ph.pan, ph.tilt, ph.zoom].join() === [p.pan, p.tilt, p.zoom].join();
+  const P = { kind: 'usb', pan: 30, tilt: 10, zoom: 200, focusAuto: true };
+
+  // A. telecomando IR + camera che ignora il valore che ha già + letture USB ferme all'ultimo valore
+  {
+    const { lk, c, phys } = await real({ FAKE_UVC_SAME: '1' });
+    await c.gotoPosition(P, 1);
+    assert.ok(at(await phys(), P), 'primo richiamo');
+    await lk.request('ir', ['pan=-80', 'tilt=50', 'zoom=350']);
+    await c.gotoPosition(P, 1);
+    let ph = await phys();
+    assert.ok(at(ph, P), `dopo il telecomando torna sull'inquadratura: ${JSON.stringify(ph)}`);
+    await c.home();
+    await lk.request('ir', ['pan=60', 'zoom=300']);
+    await c.home();
+    ph = await phys();
+    assert.deepStrictEqual([ph.pan, ph.tilt, ph.zoom], [0, 0, 100], `Home due volte col telecomando in mezzo: ${JSON.stringify(ph)}`);
+    await c.disconnect();
+    ok('richiamo dopo il telecomando: la camera torna anche se via USB dice di essere già lì');
+  }
+
+  // B. stessa camera ma con le letture vere: il richiamo non resta bloccato fino allo scadere
+  {
+    const { lk, c, lg, phys } = await real({ FAKE_UVC_SAME: '1', FAKE_UVC_READS: 'phys' });
+    await c.gotoPosition(P, 1);
+    await lk.request('ir', ['pan=-80', 'tilt=50', 'zoom=350']);
+    const t0 = Date.now();
+    await c.gotoPosition(P, 1);
+    const ph = await phys();
+    assert.ok(at(ph, P), `letture vere: ${JSON.stringify(ph)} ${lg.join(' | ')}`);
+    assert.ok(Date.now() - t0 < 2000 && !lg.some((m) => /non conferma/.test(m)), 'arriva senza aspettare lo scadere');
+    // salvataggio dopo il telecomando: si salva la posizione vera, non quella ricordata
+    await lk.request('ir', ['pan=55', 'tilt=-5', 'zoom=250']);
+    const sp = await c.getPosition();
+    assert.deepStrictEqual([sp.pan, sp.tilt, sp.zoom], [55, -5, 250]);
+    await c.disconnect();
+    ok('richiamo con letture vere e salvataggio dopo il telecomando');
+  }
+
+  // C. fuoco cambiato dal telecomando (tasto FOCUS manual): il richiamo rimette l'automatico
+  {
+    const { lk, c, phys } = await real({ FAKE_UVC_READS: 'phys' });
+    await c.gotoPosition(P, 1);
+    await lk.request('ir', ['focusMode=manual']);
+    await c.gotoPosition(P, 1);
+    assert.strictEqual((await phys()).focusMode, 'continuous');
+    await c.disconnect();
+    ok('richiamo: il modo del fuoco si manda sempre');
+  }
+
+  // D. clic: un impulso a velocità sotto la soglia di partenza non muove la Tenveo; il clic deve muoverla
+  {
+    const { c, phys } = await real({ FAKE_UVC_REL_START_MS: '200' });
+    assert.ok(c._relOn());
+    const p0 = await phys();
+    c.stepMove(1, 0);
+    await sleep(400);
+    let p1 = await phys();
+    assert.ok(p1.pan - p0.pan >= 1 && p1.pan - p0.pan <= 2, `il clic muove poco ma muove: ${p0.pan} -> ${p1.pan}`);
+    c.stepMove(0, -1);
+    await sleep(400);
+    p1 = await phys();
+    assert.ok(p1.tilt < p0.tilt, 'anche in altezza');
+    await c.disconnect();
+    ok('clic delle frecce: passo assoluto minimo, la camera si muove');
+  }
+
+  // E. Lento tenuto premuto con una camera la cui velocità minima è alta: deve restare lento
+  {
+    const { lk, c, phys } = await real({ FAKE_UVC_REL_FLOOR: '10' });
+    const before = (await lk.request('debug')).relLog.length;
+    const p0 = await phys();
+    c.move(0.02, 0);
+    await sleep(1000);
+    c.move(0, 0);
+    await sleep(150);
+    const p1 = await phys();
+    const dlog = (await lk.request('debug')).relLog.slice(before);
+    assert.ok(p1.pan - p0.pan >= 2 && p1.pan - p0.pan <= 8, `Lento: ${p1.pan - p0.pan} unità in 1 s`);
+    assert.ok(dlog.every((v) => !v.pan && !v.tilt), `Lento senza comandi a velocità: ${JSON.stringify(dlog)}`);
+    const p2 = await phys();
+    await sleep(400);
+    assert.strictEqual((await phys()).pan, p2.pan, 'fermo al rilascio');
+    // Veloce: comando a velocità continuo come prima
+    c.move(0.12, 0);
+    await sleep(300);
+    c.stopAll();
+    await sleep(100);
+    const d2 = await lk.request('debug');
+    assert.ok(d2.relLog.some((v) => v.pan > 0), 'Veloce usa il comando a velocità');
+    assert.ok(d2.rel.pan === 0 && d2.rel.tilt === 0, 'STOP lo ferma');
+    // STOP durante il Lento: nessun altro passo
+    c.move(-0.02, 0);
+    await sleep(250);
+    c.stopAll();
+    const p3 = await phys();
+    await sleep(500);
+    assert.strictEqual((await phys()).pan, p3.pan, 'STOP ferma il Lento');
+    await c.disconnect();
+    ok('Lento tenuto: passi minimi, più lento della velocità minima della camera');
+  }
+
+  // F. camera che si muove davvero solo a multipli di 3 (griglia più fine del suo passo vero)
+  {
+    const { c, lg, phys } = await real({ FAKE_UVC_REL: '0', FAKE_UVC_QUANTUM: '3', FAKE_UVC_READS: 'phys' });
+    const p0 = await phys();
+    await c.stepMove(1, 0);
+    const p1 = await phys();
+    assert.ok(p1.pan > p0.pan, `il primo clic muove: ${p0.pan} -> ${p1.pan}`);
+    assert.ok(lg.some((m) => /passo/.test(m)), lg.join(' | '));
+    await c.stepMove(1, 0);
+    const p2 = await phys();
+    assert.ok(p2.pan > p1.pan, `anche il secondo, col passo ricordato: ${p1.pan} -> ${p2.pan}`);
+    await c.disconnect();
+    ok('clic con passo vero più grosso: il passo cresce finché la camera si muove e si ricorda');
+  }
+
   // --- camera che rifiuta i comandi a velocità: si torna ai passi assoluti
   l = link('ptz', 'refuse');
   cam = new UvcCamera({ label: 'USB Camera (1bcf:2c99)', link: l, timing: TIMING });
@@ -132,12 +266,13 @@ async function main() {
   cam.on('log', (m) => logs2.push(m));
   await cam.connect();
   await sleep(100);
-  const r0 = await l.settings();
-  cam.stepMove(1, 0); // rifiutato: avviso e passi assoluti da qui in poi
+  cam.move(0.12, 0); // Veloce: rifiutato, avviso e passi assoluti da qui in poi
   await sleep(100);
+  cam.move(0, 0);
   assert.ok(!cam._relOn() && logs2.some((m) => /rifiutato/.test(m)), logs2.join(' | '));
-  cam.stepMove(1, 0);
-  await sleep(100);
+  await sleep(50);
+  const r0 = await l.settings();
+  await cam.stepMove(1, 0);
   const r1 = await l.settings();
   assert.strictEqual(r1.pan - r0.pan, 1, 'a passi assoluti dopo il rifiuto');
   assert.strictEqual(cam.state, 'connected');

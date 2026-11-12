@@ -5,8 +5,11 @@
 
 const { EventEmitter } = require('events');
 const { t } = require('../shared/i18n');
+const CENTER = require('../shared/center');
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const DIRS = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
 
 // Funzioni fisse; quelle delle inquadrature si aggiungono per ogni preset ("preset:<id>")
@@ -214,6 +217,90 @@ class Hub extends EventEmitter {
       this.pulseOn = false;
       cam.move(0, 0);
     }, 120);
+  }
+
+  // Comandi manuali dall'app (frecce tenute, tastiera, zoom, fuoco). Come gli altri comandi manuali
+  // interrompono un richiamo in corso anche con VISCA e ONVIF (prima arrivavano direttamente alla
+  // camera: il richiamo VISCA mandava ancora zoom e fuoco dopo che si era già ripreso a muovere a
+  // mano) e prendono il posto di un impulso da Stream Deck, il cui stop li fermerebbe a metà.
+  manualMove(x, y) {
+    const cam = this.camera();
+    if (x || y) {
+      clearTimeout(this.pulseTimer);
+      this.pulseOn = false;
+      this._supersede();
+    }
+    cam.move(x, y);
+  }
+
+  manualZoom(z) {
+    const cam = this.camera();
+    if (z) {
+      clearTimeout(this.zoomTimer);
+      this.zoomPulseOn = false;
+      this._supersede();
+    }
+    cam.zoom(z);
+  }
+
+  manualFocus(f) {
+    const cam = this.camera();
+    if (f) this._supersede();
+    cam.focus(f);
+  }
+
+  // «Centra qui» (conti in src/shared/center.js): un passo verso il punto cliccato nell'anteprima.
+  // ox, oy = scarto del punto dal centro del video vero (frazioni, + = destra / in basso).
+  // È un comando manuale: ferma impulsi e richiami. Risponde con i fattori usati, così
+  // l'interfaccia misura di quanto si è spostata davvero l'immagine e corregge la taratura.
+  async centerStep(ox, oy, aspect) {
+    const cam = this.camera();
+    if (typeof cam.getPosition !== 'function' || typeof cam.gotoPosition !== 'function') throw new Error(t('ctr.unsupported'));
+    this._cancelManual(cam);
+    this._supersede();
+    this.gen += 1;
+    const gen = this.gen;
+    const cancelled = () => this.gen !== gen;
+    cam.stopAll();
+    await sleep(150); // la testa si ferma prima della lettura
+    if (cancelled()) return { moved: false };
+    let pos;
+    try { pos = await cam.getPosition(); } catch (e) { throw new Error(t('ctr.noPosition', { error: e.message })); }
+    if (cancelled()) return { moved: false };
+    const cfg = this.store.settings.camera || {};
+    const cal = (this.store.settings.centerCal || {})[CENTER.camKey(cfg)];
+    const ctx = { axes: cam.axes };
+    const plan = CENTER.planStep({
+      ox: clamp(Number(ox) || 0, -0.5, 0.5),
+      oy: clamp(Number(oy) || 0, -0.5, 0.5),
+      pos, ctx, cal, aspect: Number(aspect) || 16 / 9,
+      invertPan: !!cfg.invertPan, invertTilt: !!cfg.invertTilt,
+    });
+    if (!plan) throw new Error(t('ctr.unsupported'));
+    const to = CENTER.applyOffset(pos, plan.dPan, plan.dTilt, ctx);
+    if (!to) return { moved: false, bucket: plan.bucket, fPan: plan.fPan, fTilt: plan.fTilt };
+    try {
+      await cam.gotoPosition(to, 0.5, cancelled);
+    } catch (e) {
+      if (cancelled() || (e && e.code === 'CANCELLED')) return { moved: false };
+      throw e;
+    }
+    if (cancelled()) return { moved: false };
+    return { moved: true, bucket: plan.bucket, fPan: plan.fPan, fTilt: plan.fTilt };
+  }
+
+  // taratura misurata dall'interfaccia: fattore per asse e fascia di zoom, ricordato per camera
+  centerLearn({ bucket, pan, tilt } = {}) {
+    const b = Math.round(Number(bucket));
+    if (!(b >= 0 && b < CENTER.BUCKETS)) return;
+    const ok = (f) => num(f) && Math.abs(f) >= 0.1 && Math.abs(f) <= 10;
+    if (!ok(pan) && !ok(tilt)) return;
+    const key = CENTER.camKey(this.store.settings.camera);
+    const cur = (this.store.settings.centerCal || {})[key] || {};
+    const next = { pan: { ...(cur.pan || {}) }, tilt: { ...(cur.tilt || {}) } };
+    if (ok(pan)) next.pan[b] = pan;
+    if (ok(tilt)) next.tilt[b] = tilt;
+    this.store.saveSettings({ centerCal: { [key]: next } });
   }
 
   // Piccolo spostamento: muove per ms millisecondi e si ferma da solo (ideale per un tasto)

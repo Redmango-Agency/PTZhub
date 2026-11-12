@@ -4,6 +4,22 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 
 ## [Non ancora pubblicata]
 
+## [1.5.6] — 2026-11-12
+
+### Aggiunto
+- **Griglia sull'anteprima**: tasto «Griglia» in basso a destra sull'anteprima, con le linee dei terzi e un mirino al centro esatto, leggibili sia sulle immagini chiare sia su quelle scure. La scelta si ricorda; mentre crei o modifichi un'inquadratura la griglia si accende da sola.
+- **Centra con un clic**: attivi il tasto e clicchi sull'anteprima il punto da mettere al centro (per esempio il viso di chi parla): la camera lo porta al centro. Funziona con le camere USB, VISCA e ONVIF che comunicano la posizione. La prima volta usa una stima del campo visivo, poi ritrova nell'immagine il punto cliccato, corregge con uno o due piccoli passi e impara quanto si sposta l'immagine a ogni livello di zoom (anche se la camera è capovolta o specchiata), così le volte dopo è più precisa. In Regia è spento all'avvio e si spegne da solo dopo ogni clic, per non muovere la camera in diretta per sbaglio; nella modifica di un'inquadratura è acceso. Senza anteprima video (spenta, o su Windows lasciata a OBS o Zoom) i tasti non compaiono e un messaggio lo dice.
+
+### Cambiato
+- **Home non è più al centro del cerchio**: veniva premuto per sbaglio e la camera si spostava in diretta. Ora il centro del cerchio non fa niente; Home è un tasto piccolo sotto STOP e parte solo **tenendolo premuto mezzo secondo** (una barra si riempie; un clic da solo mostra solo un suggerimento). Da tastiera globale, pannello OBS, Stream Deck e indirizzi web Home funziona come prima.
+- **Frecce con le camere USB**: un clic sposta la camera del passo più piccolo che fa davvero (PTZ Hub controlla rileggendo la posizione: se la camera non si è mossa il passo cresce un po' e il valore buono si ricorda). Tenendo premuto in «Lento» la camera va a piccoli passi regolari, più lenta della velocità minima della camera; «Veloce» resta fluido come prima.
+
+### Corretto
+- **Camera USB: un clic sulle frecce non la muoveva e «Lento» tenuto premuto andava troppo veloce** (Tenveo). Il clic era un comando a velocità bassissima per un attimo, troppo breve perché la camera partisse, e la velocità minima della camera è comunque alta: ora clic e «Lento» non dipendono più da quella velocità.
+- **Camera USB mossa col telecomando: il richiamo di un'inquadratura non sempre la riportava sul punto salvato.** Causa probabile: via USB la camera continua a dichiarare l'ultima posizione ricevuta e ignora un comando uguale a quello, quindi richiamando l'inquadratura già usata (o premendo Home due volte) non si muoveva. Ora il richiamo manda sempre pan, tilt e zoom e, per gli assi che risultano già sul punto giusto, passa prima da un valore accanto (un passo) e subito dopo da quello giusto: la camera può fare un piccolissimo scatto, ma arriva. Anche il modo del fuoco (automatico o manuale) si rimanda sempre, perché il telecomando può averlo cambiato.
+- Salvataggio di un'inquadratura USB: la posizione si rilegge sempre dalla camera; se la camera non la comunica compare un errore invece di salvare coordinate forse vecchie.
+- Muovere la camera a mano nell'app (frecce tenute, zoom, fuoco) ora interrompe anche un richiamo VISCA o ONVIF in corso, come già STOP e Home: prima zoom e fuoco dell'inquadratura potevano arrivare dopo. Un impulso dallo Stream Deck non ferma più a metà un movimento fatto a mano nell'app.
+
 ## [1.5.5] — 2026-11-08
 
 ### Corretto
@@ -112,7 +128,8 @@ Tutte le versioni di PTZ Hub (fino alla 1.3 si chiamava PTZ Panel). Il formato s
 - Inquadrature con editor dedicato, salvate per ogni account Windows, con esportazione e importazione.
 - Ricerca automatica della telecamera e del flusso video, installer per Windows.
 
-[Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.5.5...HEAD
+[Non ancora pubblicata]: https://github.com/Redmango-Agency/PTZhub/compare/v1.5.6...HEAD
+[1.5.6]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.6
 [1.5.5]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.5
 [1.5.4]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.4
 [1.5.3]: https://github.com/Redmango-Agency/PTZhub/releases/tag/v1.5.3

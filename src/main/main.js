@@ -684,7 +684,9 @@ function registerIpc() {
 
   ipcMain.handle('settings:save', async (_e, partial) => {
     const before = JSON.stringify(store.settings.camera);
-    const beforePrev = JSON.stringify(store.settings.preview);
+    // griglia e rotazione si disegnano nell'interfaccia: cambiarle non deve riavviare il video
+    const pvKey = (pv) => JSON.stringify({ ...pv, grid: undefined, rotate180: undefined });
+    const beforePrev = pvKey(store.settings.preview);
     const beforeApi = JSON.stringify(store.settings.api);
     const beforeUpd = JSON.stringify(store.settings.updates);
     const beforeSide = viewSide();
@@ -693,7 +695,7 @@ function registerIpc() {
     const s = store.saveSettings(p);
     I18N.setLang(I18N.resolve(s.language, app.getLocale()));
     if (JSON.stringify(s.camera) !== before) startCamera();
-    if (JSON.stringify(s.preview) !== beforePrev) startPreview();
+    if (pvKey(s.preview) !== beforePrev) startPreview();
     applyOnTop();
     if (JSON.stringify(s.api) !== beforeApi) await startControl();
     if (JSON.stringify(s.updates) !== beforeUpd) scheduleUpdateChecks();
@@ -777,9 +779,9 @@ function registerIpc() {
     if (!camera) return;
     try {
       switch (name) {
-        case 'move': camera.move(args[0], args[1]); break;
-        case 'zoom': camera.zoom(args[0]); break;
-        case 'focus': camera.focus(args[0]); break;
+        case 'move': hub.manualMove(Number(args[0]) || 0, Number(args[1]) || 0); break;
+        case 'zoom': hub.manualZoom(Number(args[0]) || 0); break;
+        case 'focus': hub.manualFocus(Number(args[0]) || 0); break;
         case 'focusAuto': camera.setFocusAuto(!!args[0]); break;
         case 'onePush': camera.focusOnePush(); break;
         case 'home': hub.home(); break;
@@ -797,6 +799,15 @@ function registerIpc() {
     c.stopAll();
     await new Promise((r) => setTimeout(r, 250)); // la testa si ferma prima della lettura
     return c.getPosition();
+  });
+  // «Centra qui»: solo dalla finestra principale (anteprima), un passo alla volta
+  ipcMain.handle('cam:centerStep', (e, ox, oy, aspect) => {
+    if (!fromMain(e)) throw new Error(t('api.badCommand'));
+    return hub.centerStep(Number(ox), Number(oy), Number(aspect));
+  });
+  ipcMain.handle('cam:centerLearn', (e, m) => {
+    if (fromMain(e) && m && typeof m === 'object') hub.centerLearn(m);
+    return true;
   });
   ipcMain.handle('cam:saveSlot', (_e, n) => requireCamera().saveSlot(n));
   ipcMain.handle('cam:recallSlot', (_e, n) => requireCamera().recallSlot(n));

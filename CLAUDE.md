@@ -8,6 +8,8 @@ Storico completo dello sviluppo, decisioni e cose in sospeso: `storico.local.md`
 - Rispondi in italiano, breve e concreto. Commenti nel codice e messaggi dei commit in italiano.
 - Ogni testo dell'interfaccia va in italiano **e** inglese in `src/shared/i18n.js`: mai chiavi non tradotte.
 - Stile grafico chiaro tipo Apple (non scuro), angoli morbidi; riusa le classi di `src/renderer/styles.css` e `base.css`.
+- Sicurezza in diretta: il centro del cerchio non fa niente; Home nell'app parte solo tenendolo premuto mezzo secondo (tasto piccolo sotto STOP); «Centra con un clic» in Regia è spento all'avvio e si spegne dopo ogni clic.
+- Camera USB (1.5.6): clic e «Lento» = passi assoluti minimi verificati rileggendo la posizione (`_stepOnce`, passo ricordato in `minInc`); «Veloce» = comando a velocità; il richiamo passa da un valore accanto per gli assi che la camera dà già sul punto («spinta», `kickOf` in `_goAbsolute`), perché dopo il telecomando la camera ignora un valore uguale all'ultimo ricevuto. L'aiuto finto `test/fake-uvc-helper.js` riproduce questi casi (`FAKE_UVC_READS`, `FAKE_UVC_SAME`, `FAKE_UVC_QUANTUM`, `FAKE_UVC_REL_START_MS`, `FAKE_UVC_REL_FLOOR`, comando `ir`).
 - Sicurezza in diretta: STOP sempre raggiungibile (Esc/Spazio, tasto rosso sotto il cerchio delle frecce e nelle Impostazioni; le viste Compatta e Laterale hanno solo le inquadrature, scelta di Daniele); la testa si ferma al rilascio, alla perdita del fuoco e alla chiusura; STOP, Home o un comando manuale interrompono un richiamo in corso.
 - Non è una regia video: il cambio tra le camere lo fa OBS. Più PTZ (solo per muoverle) è previsto per la 2.0.
 - Tutti i comandi passano dal centro operativo `src/main/hub.js` (app, pannello OBS, indirizzi web, tasti globali, Stream Deck), così tutti vedono la stessa inquadratura attiva.
@@ -26,7 +28,7 @@ src/main/store.js      impostazioni e inquadrature per account (userData «PTZ H
 src/main/preview.js    anteprima RTSP con ffmpeg (vendor/ffmpeg, non nel repo)
 src/renderer/          interfaccia (app.js, index.html, side.* = linguetta Laterale, common.js)
 src/control/           pannello per OBS
-src/shared/            i18n.js, uvc-caps.js
+src/shared/            i18n.js, uvc-caps.js, center.js («Centra con un clic»: clic → spostamento, inseguimento del punto, taratura)
 streamdeck/            plugin Stream Deck (SDK v2), test e pacchetto propri
 test/                  test con camere simulate (fake-visca, fake-onvif con password e casi Dahua `dahua`/`digest`, fake-uvc-helper) + smoke-main.js (prova completa in Electron)
 docs/                  guida.md / guide.md (guida per chi non è esperto, aperta da «Serve aiuto?»), comandi-esterni.md
@@ -38,7 +40,7 @@ scripts/               fetch-ffmpeg, release-notes, ci-annotate, make-dmg-linux
 npm install
 node scripts/fetch-ffmpeg.js darwin-arm64     # ffmpeg per l'anteprima (Windows: npm run ffmpeg:win)
 npm start
-npm test                                      # VISCA, ONVIF, collegamento esterno, hub, USB, aggiornamenti
+npm test                                      # VISCA, ONVIF, collegamento esterno, hub, USB, centratura, aggiornamenti
 cd streamdeck && npm ci && npm test && npm run pack   # plugin -> streamdeck/dist/PTZ-Hub.streamDeckPlugin
 ```
 - Prova completa: `test/smoke-main.js` (modalità con `PTZ_SMOKE=main|wizard|wizauth|startup|usb|usb-noptz`; `wizauth` vuole `node test/fake-onvif.js 8080` acceso, oppure `node test/fake-onvif.js 8080 dahua` per la Dahua con l'ora sbagliata). È pensata per Linux con `xvfb-run` e `XDG_CONFIG_HOME` vuota: sul Mac userebbe i dati veri dell'account, quindi non lanciarla lì senza una cartella dati separata.

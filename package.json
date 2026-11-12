@@ -1,11 +1,11 @@
 {
   "name": "ptz-hub",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "description": "Pannello di controllo per telecamere PTZ via rete (VISCA over IP, ONVIF) o USB (UVC, in prova): anteprima, joystick e inquadrature per ogni account Windows",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test/visca.test.js && node test/onvif.test.js && node test/control.test.js && node test/hub.test.js && node test/uvc.test.js && node test/uvc-native.test.js && node test/probe.test.js && node test/cam-apps.test.js && node test/updates.test.js",
+    "test": "node test/visca.test.js && node test/onvif.test.js && node test/control.test.js && node test/hub.test.js && node test/uvc.test.js && node test/uvc-native.test.js && node test/center.test.js && node test/probe.test.js && node test/cam-apps.test.js && node test/updates.test.js",
     "rileva": "node tools/rileva-camera.js",
     "dist:win": "node scripts/build-uvc-helper.js && electron-builder --win --x64 --publish never",
     "uvc:win": "node scripts/build-uvc-helper.js",

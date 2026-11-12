@@ -101,6 +101,27 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
 .active-badge.on { display: block; }
 .edit-hint { top: 14px; left: 14px; color: var(--blue-ink); display: none; background: rgba(255, 255, 255, .94); }
 .edit-cross { position: absolute; left: 50%; top: 50%; margin: -14px 0 0 -14px; display: none; filter: drop-shadow(0 0 2px rgba(0, 0, 0, .5)); }
+.edit-cross { pointer-events: none; }
+/* griglia e «Centra con un clic»: in basso a destra (nell'editor in alto a destra, libero) */
+.pv-tools { position: absolute; right: 14px; bottom: 14px; z-index: 4; display: flex; align-items: center; gap: 6px; max-width: calc(100% - 28px); }
+body.editing .pv-tools { top: 14px; bottom: auto; }
+.pv-btn {
+  height: 28px; padding: 0 11px; border: 0; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; flex: none;
+  background: rgba(255, 255, 255, .92); color: var(--text); font: inherit; font-size: 12px; font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .18); cursor: pointer; white-space: nowrap;
+}
+.pv-btn svg { width: 14px; height: 14px; flex: none; }
+.pv-btn:hover { background: #FFFFFF; }
+.pv-btn.on { background: var(--blue); color: #FFFFFF; }
+.pv-btn:disabled { opacity: .55; cursor: default; }
+.pv-btn[hidden] { display: none; }
+.pv-note {
+  background: rgba(29, 29, 31, .72); color: #FFFFFF; border-radius: 8px; padding: 5px 9px; font-size: 11.5px;
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pv-note:empty { display: none; }
+.video-wrap.center-on #video { cursor: crosshair; }
+.video-wrap.centering #video { cursor: progress; }
 .edit-note {
   position: absolute; bottom: 14px; left: 14px; display: none; background: rgba(29, 29, 31, .72); color: #FFFFFF;
   border-radius: 8px; padding: 5px 9px; font-size: 11.5px; max-width: calc(100% - 28px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -119,7 +140,8 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
 .keys-link svg { width: 14px; height: 14px; }
 .divider { height: 1px; background: #EFEFF2; margin: 2px 0; }
 
-/* cerchio con 4 tasti: un clic = passo piccolo, tenuta = movimento; Home al centro */
+/* cerchio con 4 tasti: un clic = passo piccolo, tenuta = movimento; il centro non fa niente
+   (Home sta sotto STOP e parte solo tenendolo premuto, vedi .home-hold) */
 .head-l { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .keys-link.icon-only { padding: 4px; color: var(--muted); }
 .keys-link.icon-only:hover { color: var(--link); }
@@ -142,22 +164,37 @@ body.settings-open:not(.mac) #btnCloseSettings { display: grid; }
 .wedge.pressed { background: var(--blue-soft); color: var(--blue-ink); }
 .wedge:focus-visible { outline: 0; box-shadow: inset 0 0 0 3px var(--blue); }
 body.editing .wedge:not(.pressed) { background: #E9F0FA; }
-.ring-home {
-  --home: calc(var(--ring) * .365);
-  position: absolute; left: 50%; top: 50%; width: var(--home); height: var(--home); margin: calc(var(--home) / -2) 0 0 calc(var(--home) / -2);
-  border-radius: 50%; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0;
-  color: #424245; font-size: 12px; font-weight: 600;
+.ring-hub {
+  --hub: calc(var(--ring) * .30);
+  position: absolute; left: 50%; top: 50%; width: var(--hub); height: var(--hub); margin: calc(var(--hub) / -2) 0 0 calc(var(--hub) / -2);
+  border-radius: 50%; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
+  cursor: default; /* copre gli angoli delle frecce: un clic al centro non fa niente */
 }
-.ring-home svg { width: 22px; height: 22px; }
-.ring-home:hover { background: #FAFAFC; color: var(--text); }
-.ring-home:active { transform: translateY(1px); }
 .dp-hint { margin: -4px 0 0; text-align: center; font-size: 12.5px; color: #424245; }
 .move .btn-stop { height: 48px; font-size: 15px; font-weight: 700; letter-spacing: .05em; }
+/* Home: piccolo e secondario, sotto STOP; parte solo tenendolo premuto mezzo secondo (la barra si riempie) */
+.home-row { display: flex; justify-content: center; margin-top: -2px; }
+.home-hold {
+  position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px;
+  border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; touch-action: none; user-select: none;
+}
+.home-hold svg { width: 14px; height: 14px; flex: none; }
+.home-hold > * { position: relative; z-index: 1; }
+.home-hold::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; background: var(--blue-soft);
+  transform: scaleX(0); transform-origin: left center;
+}
+.home-hold:hover { color: var(--text); }
+.home-hold.arming { color: var(--blue-ink); border-color: #9CC3F0; }
+.home-hold.arming::before { transform: scaleX(1); transition: transform .5s linear; }
+.home-hold.fired { color: var(--blue-ink); border-color: #9CC3F0; background: var(--blue-soft); }
+.home-hold:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--blue-soft); border-color: var(--blue); }
 /* finestra bassa: i comandi non scorrono mai, si stringono (vedi fitControls in app.js) */
 .controls.tight { gap: 8px; }
 .controls.tight .ctl-card { padding: 9px 14px 11px; gap: 7px; }
-.controls.tight .dp-hint, .controls.tight .ring-home span, .controls.tight .divider { display: none; }
+.controls.tight .dp-hint, .controls.tight .divider { display: none; }
+.controls.tight .home-hold { height: 24px; }
 .controls.tight .move .btn-stop { height: 34px; }
 .controls.tight .btn-ctl { height: 32px; }
 .controls.tight .btn-ctl.small { height: 30px; }
@@ -591,7 +628,6 @@ body.settings-open .toasts, body.wizard-open .toasts { top: 52px; }
   .ctl-card { padding: 10px 14px 12px; gap: 8px; }
   .controls { gap: 10px; }
   .ring { --ring: clamp(118px, calc(100vh - 640px), 236px); }
-  .ring-home span { display: none; }
   .move .btn-stop { height: 38px; }
   .btn-ctl, .btn-stop { height: 36px; }
   .btn-ctl.small, .btn-stop.small { height: 34px; }

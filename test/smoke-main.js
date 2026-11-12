@@ -131,6 +131,17 @@ async function runMain(win, js, waitFor, result) {
   await shot(win, '01-regia');
   result.overflowRegia = await js(OVERFLOW);
   result.controlsFit = await js(CONTROLS_FIT);
+  result.ringCenterEl = await js("(() => { const r = document.querySelector('#dpad').getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2).className; })()");
+  result.pvTools = await js("[...document.querySelectorAll('#pvTools .pv-btn')].filter((b) => !b.hidden).map((b) => b.textContent).join(' | ')");
+  const g0 = await js('window.ptz.init().then((s) => s.settings.preview.grid)');
+  await js("document.querySelector('#btnGrid').click()");
+  await sleep(300);
+  const g1 = await js('window.ptz.init().then((s) => s.settings.preview.grid)');
+  result.gridToggle = `${g0}->${g1}|on=${await js("document.querySelector('#btnGrid').classList.contains('on')")}`;
+  await shot(win, '01b-griglia');
+  await js("document.querySelector('#btnGrid').click()");
+  await sleep(300);
+  result.homeBelowStop = await js("document.querySelector('#btnHome').getBoundingClientRect().top >= document.querySelector('#btnStop').getBoundingClientRect().bottom");
 
   // cerchio: tenendo premuto un tasto resta acceso, al rilascio si spegne; Lento / Veloce si salvano
   const wr = await js("(() => { const r = document.querySelector('.wedge.right').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()");
@@ -158,6 +169,8 @@ async function runMain(win, js, waitFor, result) {
   await js("document.querySelector('#btnSavePreset').click()");
   await sleep(600);
   result.editorOpen = await js("document.body.classList.contains('editing')");
+  // nell'editor griglia e «Centra con un clic» partono accesi
+  result.editorTools = await js("`grid=${document.querySelector('#btnGrid').classList.contains('on')} center=${document.querySelector('#btnCenter').classList.contains('on')} | ${document.querySelector('#pvNote').textContent}`");
   await js("document.querySelector('#edName').value='Palco largo'");
   await shot(win, '03-editor-nuova');
   result.overflowEditor = await js(OVERFLOW);
@@ -676,8 +689,53 @@ async function runUsb(win, js, waitFor, result) {
   const rB = await trk();
   result.recallB = { expected: B.pos, got: rB, ok: at(B, rB) };
 
-  // Home: pan e tilt al centro della corsa (la camera finta non ha lo 0), zoom al minimo
-  await js("document.querySelector('#btnHome').click()");
+  // «Centra con un clic»: spento all'avvio; acceso, un clic in alto a destra dell'anteprima porta
+  // il pan a destra e il tilt in su, poi in Regia si spegne da solo
+  result.centerOffAtStart = !(await js("document.querySelector('#btnCenter').classList.contains('on')"));
+  const c0 = await trk();
+  await js("document.querySelector('#btnCenter').click()");
+  await sleep(200);
+  result.centerHint = await js("document.querySelector('#pvNote').textContent");
+  const vr = await js("(() => { const r = document.querySelector('#video').getBoundingClientRect(); return { x: Math.round(r.x + r.width * 0.8), y: Math.round(r.y + r.height * 0.3) }; })()");
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: vr.x, y: vr.y, button: 'left', clickCount: 1 });
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: vr.x, y: vr.y, button: 'left', clickCount: 1 });
+  await sleep(300);
+  await waitFor("!document.querySelector('#videoWrap').classList.contains('centering')", 20000);
+  await sleep(300);
+  const c1 = await trk();
+  result.centerClick = {
+    before: c0, after: c1, ok: c1.pan > c0.pan && c1.tilt > c0.tilt && c1.zoom === c0.zoom,
+    offAfter: !(await js("document.querySelector('#btnCenter').classList.contains('on')")),
+  };
+
+  // Home: il centro del cerchio non fa niente; un clic breve su Home non muove la camera (solo
+  // un suggerimento); tenendolo premuto mezzo secondo pan e tilt vanno al centro della corsa
+  // (la camera finta non ha lo 0) e lo zoom al minimo
+  const center = async (sel) => js(`(() => { const r = document.querySelector('${sel}').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+  const press = async (pt, ms) => {
+    win.webContents.sendInputEvent({ type: 'mouseDown', x: pt.x, y: pt.y, button: 'left', clickCount: 1 });
+    await sleep(ms);
+    win.webContents.sendInputEvent({ type: 'mouseUp', x: pt.x, y: pt.y, button: 'left', clickCount: 1 });
+  };
+  const h0 = await trk();
+  const rc = await center('#dpad');
+  result.ringCenterEl = await js(`document.elementFromPoint(${rc.x}, ${rc.y}).className`);
+  await press(rc, 80);
+  await sleep(900);
+  const h1 = await trk();
+  result.ringCenterInert = h1.pan === h0.pan && h1.tilt === h0.tilt && h1.zoom === h0.zoom;
+  const hb = await center('#btnHome');
+  await press(hb, 120);
+  await sleep(900);
+  const h2 = await trk();
+  result.homeShortIgnored = h2.pan === h0.pan && h2.tilt === h0.tilt && h2.zoom === h0.zoom;
+  result.homeHint = await js("[...document.querySelectorAll('#toasts .toast')].map((x) => x.textContent).join(' | ')");
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: hb.x, y: hb.y, button: 'left', clickCount: 1 });
+  await sleep(300);
+  await shot(win, 'u5b-home-tenuto');
+  result.homeArming = await js("document.querySelector('#btnHome').classList.contains('arming')");
+  await sleep(400);
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: hb.x, y: hb.y, button: 'left', clickCount: 1 });
   await sleep(2500);
   result.home = await trk();
 
@@ -727,7 +785,8 @@ async function runUsb(win, js, waitFor, result) {
   await js("document.querySelector('#viewSeg button[data-view=\"compact\"]').click()");
   await sleep(1200);
   await js("document.querySelectorAll('#compactList .p-row')[0].click()");
-  await waitFor("document.querySelector('#compactList .p-row.active .p-name')?.textContent === 'USB largo'", 8000);
+  // (USB largo può essere già attiva: si aspetta che il richiamo sia finito, non solo il segno «attiva»)
+  await waitFor("document.querySelector('#compactList .p-row.active .p-name')?.textContent === 'USB largo' && !document.querySelector('#compactList .p-row.busy')", 8000);
   result.compactRecall = at(A, await trk());
   result.compactName = await js("document.querySelector('#cName').textContent");
   await shot(win, 'u7-compatta-usb');

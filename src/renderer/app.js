@@ -243,6 +243,7 @@ function resetManualUi() {
 $('#btnStopPage').addEventListener('click', () => stopAll());
 
 function stopAll() {
+  homeDisarm();
   resetManualUi();
   ptz.cmd('stop');
 }
@@ -385,7 +386,59 @@ function goHome() {
   ptz.cmd('home');
 }
 $('#btnOnePush').addEventListener('click', () => ptz.cmd('onePush'));
-$('#btnHome').addEventListener('click', goHome);
+// Home sotto STOP: parte solo tenendolo premuto mezzo secondo (in diretta un clic per sbaglio
+// non deve spostare la camera). Tasti globali, pannello OBS, indirizzi web e Stream Deck restano immediati.
+const HOME_HOLD_MS = 500;
+let homeArm = null;
+function homeDisarm() {
+  if (!homeArm) return;
+  clearTimeout(homeArm.timer);
+  homeArm = null;
+  $('#btnHome').classList.remove('arming');
+}
+function homeArmStart() {
+  homeDisarm();
+  const b = $('#btnHome');
+  b.classList.remove('fired');
+  void b.offsetWidth; // la barra riparte da zero
+  b.classList.add('arming');
+  const arm = {
+    timer: setTimeout(() => {
+      if (homeArm !== arm) return;
+      homeArm = null;
+      b.classList.remove('arming');
+      b.classList.add('fired');
+      setTimeout(() => b.classList.remove('fired'), 600);
+      goHome();
+    }, HOME_HOLD_MS),
+  };
+  homeArm = arm;
+}
+// rilasciato prima del tempo: niente movimento, solo il suggerimento
+function homeArmEnd() {
+  if (!homeArm) return;
+  homeDisarm();
+  toast(t('ctl.homeHint'), 'info', 3000);
+}
+{
+  const b = $('#btnHome');
+  b.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    b.setPointerCapture(e.pointerId);
+    homeArmStart();
+  });
+  b.addEventListener('pointerup', homeArmEnd);
+  b.addEventListener('pointercancel', homeDisarm);
+  b.addEventListener('lostpointercapture', homeDisarm);
+  b.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.repeat) return;
+    e.preventDefault();
+    homeArmStart();
+  });
+  b.addEventListener('keyup', (e) => { if (e.key === 'Enter') homeArmEnd(); });
+  b.addEventListener('blur', homeDisarm);
+}
 $('#btnStop').addEventListener('click', () => stopAll());
 
 // Tastiera. Ogni tasto premuto viene ricordato per codice fisico (e.code): così il
@@ -473,6 +526,7 @@ window.addEventListener('keyup', (e) => {
 // Se la finestra perde il fuoco durante un movimento manuale, si ferma la testa
 // (non si interrompe il richiamo di un'inquadratura già avviato)
 window.addEventListener('blur', () => {
+  homeDisarm();
   if (moveActive || zoomActive || focusActive || keys.size) stopAll();
 });
 
@@ -553,30 +607,40 @@ function drawOn(cv, g, src, withGrid) {
   g.drawImage(src, dx, dy, dw, dh);
   g.setTransform(1, 0, 0, 1, 0, 0);
   if (withGrid) {
+    // linee dei terzi e mirino al centro: ognuna due volte (scura sotto, chiara sopra), così si
+    // leggono sia su un fondo chiaro sia su uno scuro
     const dpr = window.devicePixelRatio || 1;
-    g.strokeStyle = 'rgba(255,255,255,0.45)';
-    g.lineWidth = Math.max(1, dpr);
-    g.beginPath();
-    for (let i = 1; i < 3; i++) {
-      g.moveTo(dx + (dw * i) / 3, dy); g.lineTo(dx + (dw * i) / 3, dy + dh);
-      g.moveTo(dx, dy + (dh * i) / 3); g.lineTo(dx + dw, dy + (dh * i) / 3);
-    }
-    g.stroke();
-    if (!document.body.classList.contains('editing')) {
-      // nell'editor il mirino centrale è già disegnato sopra l'anteprima
+    const lines = (stroke, width) => {
+      g.strokeStyle = stroke;
+      g.lineWidth = width;
       g.beginPath();
-      const cx = dx + dw / 2;
-      const cy = dy + dh / 2;
-      const k = 10 * dpr;
-      g.moveTo(cx - k, cy); g.lineTo(cx + k, cy);
-      g.moveTo(cx, cy - k); g.lineTo(cx, cy + k);
+      for (let i = 1; i < 3; i++) {
+        g.moveTo(dx + (dw * i) / 3, dy); g.lineTo(dx + (dw * i) / 3, dy + dh);
+        g.moveTo(dx, dy + (dh * i) / 3); g.lineTo(dx + dw, dy + (dh * i) / 3);
+      }
+      if (!document.body.classList.contains('editing')) {
+        // nell'editor il mirino centrale è già disegnato sopra l'anteprima
+        const cx = dx + dw / 2;
+        const cy = dy + dh / 2;
+        const k = 14 * dpr;
+        const gap = 4 * dpr;
+        g.moveTo(cx - k, cy); g.lineTo(cx - gap, cy);
+        g.moveTo(cx + gap, cy); g.lineTo(cx + k, cy);
+        g.moveTo(cx, cy - k); g.lineTo(cx, cy - gap);
+        g.moveTo(cx, cy + gap); g.lineTo(cx, cy + k);
+      }
       g.stroke();
-    }
+    };
+    lines('rgba(0,0,0,0.35)', Math.max(2, 2.5 * dpr));
+    lines('rgba(255,255,255,0.8)', Math.max(1, dpr));
   }
 }
 
+// griglia: quella delle impostazioni in Regia; nell'editor accesa da sola (spegnibile col tasto)
+const gridOn = () => (editor ? editorGrid : !!settings.preview.grid);
+
 function draw(src) {
-  drawOn(canvas, ctx, src, settings.preview.grid);
+  drawOn(canvas, ctx, src, gridOn());
   if (wz.step === 2 && document.body.classList.contains('wizard-open')) drawOn(wzCanvas, wzCtx, src, false);
 }
 
@@ -607,6 +671,7 @@ function renderPreviewState() {
   else setPreviewMsg(t('preview.noSignal'));
   renderVideoBadge();
   renderWzVideo();
+  renderPvTools();
 }
 
 function renderVideoBadge() {
@@ -624,9 +689,11 @@ function renderVideoBadge() {
 ptz.onFrame(async (buf) => {
   try {
     const bmp = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
+    const first = !lastFrame;
     if (lastFrame && lastFrame.close) lastFrame.close();
     lastFrame = bmp;
     draw(bmp);
+    if (first) renderPvTools(); // primo fotogramma: griglia e «Centra» disponibili
   } catch (_) {
     // fotogramma corrotto: si salta
   } finally {
@@ -675,7 +742,7 @@ async function startUsb() {
     renderPreviewState();
     const loop = () => {
       if (!usbStream) return;
-      lastFrame = usbVideo;
+      if (lastFrame !== usbVideo) { lastFrame = usbVideo; renderPvTools(); }
       draw(usbVideo);
       usbRaf = requestAnimationFrame(loop);
     };
@@ -715,6 +782,148 @@ function applyPreviewSource() {
     renderPreviewState();
   }
 }
+
+// ---------------------------------------------------------------------------
+// Griglia e «Centra con un clic» (conti in src/shared/center.js)
+
+let editorGrid = true; // nell'editor la griglia parte accesa
+let centerMode = false; // in Regia mai acceso all'avvio: un clic sull'anteprima non deve muovere la camera
+let centering = false;
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function previewLive() { return previewState.state === 'live' && !!lastFrame; }
+
+function renderPvTools() {
+  if (!settings) return;
+  const live = previewLive();
+  const camOk = camConfigured(settings.camera) && camState.state === 'connected';
+  const bGrid = $('#btnGrid');
+  const bCenter = $('#btnCenter');
+  bGrid.hidden = !live;
+  bGrid.classList.toggle('on', gridOn());
+  bCenter.hidden = !live || !camConfigured(settings.camera);
+  bCenter.disabled = !camOk || centering;
+  bCenter.classList.toggle('on', centerMode && camOk);
+  bCenter.title = camOk ? t('ctr.centerTitle') : t('ctr.noCamera');
+  let note = '';
+  if (!live) note = settings.preview.source === 'none' && !editor ? '' : t('ctr.noPreview');
+  else if (centering) note = t('ctr.working');
+  else if (centerMode && camOk) note = t('ctr.hint');
+  $('#pvNote').textContent = note;
+  $('#videoWrap').classList.toggle('center-on', live && centerMode && camOk && !centering);
+  $('#videoWrap').classList.toggle('centering', centering);
+}
+
+$('#btnGrid').addEventListener('click', () => {
+  if (editor) editorGrid = !editorGrid;
+  else {
+    settings.preview.grid = !settings.preview.grid;
+    ptz.saveSettings({ preview: { grid: settings.preview.grid } });
+    if ($('#sGrid')) $('#sGrid').checked = settings.preview.grid;
+  }
+  if (lastFrame) draw(lastFrame);
+  renderPvTools();
+});
+$('#btnCenter').addEventListener('click', () => {
+  centerMode = !centerMode;
+  renderPvTools();
+});
+
+// immagine in grigio, piccola, nelle coordinate del video vero (senza rotazione)
+const GRAY_W = 160;
+let grayCanvas = null;
+function grayOf(src) {
+  const [sw, sh] = sourceSize(src);
+  if (!sw || !sh) return null;
+  const w = GRAY_W;
+  const h = Math.max(24, Math.round((GRAY_W * sh) / sw));
+  if (!grayCanvas) grayCanvas = document.createElement('canvas');
+  grayCanvas.width = w;
+  grayCanvas.height = h;
+  const g = grayCanvas.getContext('2d', { willReadFrequently: true });
+  try { g.drawImage(src, 0, 0, w, h); } catch (_) { return null; } // fotogramma già chiuso
+  const d = g.getImageData(0, 0, w, h).data;
+  const data = new Float32Array(w * h);
+  for (let i = 0; i < data.length; i++) data[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  return { w, h, data };
+}
+
+// aspetta che l'immagine si fermi dopo lo spostamento (l'anteprima di rete arriva in ritardo)
+async function waitSettled(before) {
+  const t0 = performance.now();
+  const minWait = settings.preview.source === 'rtsp' ? 900 : 350;
+  let prev = null;
+  let cur = null;
+  let changed = false;
+  let still = 0;
+  while (performance.now() - t0 < 4000) {
+    // eslint-disable-next-line no-await-in-loop
+    await pause(150);
+    if (!previewLive()) return null;
+    cur = grayOf(lastFrame);
+    if (!cur) continue;
+    if (!changed && CENTER.meanDiff(cur, before) > 3) changed = true;
+    still = prev && CENTER.meanDiff(cur, prev) < 1.5 ? still + 1 : 0;
+    prev = cur;
+    const el = performance.now() - t0;
+    if (el > minWait && still >= 2 && (changed || el > 2000)) return cur;
+  }
+  return cur;
+}
+
+// Un clic sull'anteprima: il punto va al centro. Primo passo con la stima del campo visivo, poi
+// si ritrova il punto nell'immagine nuova, si misura lo spostamento vero (taratura ricordata per
+// camera e zoom) e si corregge il resto, al massimo 3 passi.
+async function centerAt(clientX, clientY) {
+  const src = lastFrame;
+  if (!src || !previewLive()) { toast(t('ctr.noPreview'), 'warn'); return; }
+  const [sw, sh] = sourceSize(src);
+  const r = canvas.getBoundingClientRect();
+  const pt = CENTER.toSource(clientX - r.left, clientY - r.top, r.width, r.height, sw, sh, !!settings.preview.rotate180);
+  if (!pt) return; // clic sulle bande nere
+  stopManualOnly();
+  markManual();
+  centering = true;
+  renderPvTools();
+  let { u, v } = pt;
+  let img = grayOf(src);
+  const tpl = img ? CENTER.patchAt(img, u, v, 10) : null;
+  let lost = false;
+  try {
+    for (let i = 0; i < 3; i++) {
+      const ox = u - 0.5;
+      const oy = v - 0.5;
+      if (Math.abs(ox) < 0.015 && Math.abs(oy) < 0.02) break; // già al centro
+      // eslint-disable-next-line no-await-in-loop
+      const res = await ptz.centerStep(ox, oy, sw / sh);
+      if (!res || !res.moved) break;
+      if (!tpl) { lost = true; break; }
+      // eslint-disable-next-line no-await-in-loop
+      const after = await waitSettled(img);
+      const m = after && CENTER.findPatch(after, tpl);
+      if (!m || m.score < 0.6) { lost = true; break; }
+      const pan = CENTER.learnFactor(res.fPan, ox, m.u - u);
+      const tilt = CENTER.learnFactor(res.fTilt, oy, m.v - v);
+      if (pan != null || tilt != null) ptz.centerLearn({ bucket: res.bucket, pan, tilt });
+      u = m.u;
+      v = m.v;
+      img = after;
+    }
+    if (lost) toast(t('ctr.lost'), 'info', 4500);
+  } catch (e) {
+    toast(t('ctr.error', { error: errMsg(e) }), 'err', 6000);
+  } finally {
+    centering = false;
+    if (!editor) centerMode = false; // in Regia un clic alla volta
+    renderPvTools();
+  }
+}
+
+canvas.addEventListener('click', (e) => {
+  if (!centerMode || centering || !previewLive()) return;
+  if (camState.state !== 'connected') return;
+  centerAt(e.clientX, e.clientY);
+});
 
 // Miniature aggiornate con l'uso: quando la camera è arrivata su un'inquadratura e nessuno la sposta
 // a mano, la miniatura prende il fotogramma dell'anteprima (dopo 3 s, poi ogni 20 s finché resta attiva).
@@ -978,6 +1187,9 @@ async function openEditor(id = null) {
   if (view.mode !== 'full') applyView(await ptz.setView('full'));
   editor = { mode: p ? 'edit' : 'new', id: p ? p.id : null, moved: false };
   document.body.classList.add('editing');
+  editorGrid = true;
+  centerMode = true; // nell'editor un clic sull'anteprima centra quel punto
+  renderPvTools();
   $('#edName').value = p ? p.name : t('presets.defaultName', { n: presets.length + 1 });
   renderEditor();
   renderCamStatus();
@@ -1003,6 +1215,8 @@ async function closeEditor() {
   editor = null;
   ptz.setEditing(false);
   document.body.classList.remove('editing');
+  centerMode = false;
+  renderPvTools();
   renderCamStatus();
   renderPresets();
   if (lastFrame) draw(lastFrame);
